@@ -1,0 +1,21 @@
+<div class="field-drawer">
+    <h4>Drag fields to PDF</h4>
+    <div class="field-types">
+      <div 
+        *ngFor="let fieldType of fieldTypes" 
+        class="field-type-item"
+        [style.border-color]="fieldType.color"
+        draggable="true"
+        (dragstart)="dragStart($event, fieldType.type)"
+      >
+        <i nz-icon [nzType]="fieldType.icon" [style.color]="fieldType.color"></i>
+        <span>{{ fieldType.label }}</span>
+      </div>
+    </div>
+    <nz-alert 
+      nzType="info" 
+      nzMessage="Tip" 
+      nzDescription="You can also use the drawing mode in the toolbar to create fields directly on the PDF."
+      nzShowIcon
+    ></nz-alert>
+  </div>

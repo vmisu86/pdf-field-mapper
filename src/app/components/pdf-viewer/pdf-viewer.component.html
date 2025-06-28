@@ -1,0 +1,69 @@
+<div class="pdf-viewer-container">
+  <div class="toolbar">
+    <nz-upload [nzBeforeUpload]="beforeUpload" (nzChange)="onFileSelected($event)">
+      <button nz-button nzType="primary">
+        <i nz-icon nzType="upload"></i>
+        Upload PDF
+      </button>
+    </nz-upload>
+
+    <nz-button-group>
+      <button nz-button (click)="previousPage()" [disabled]="currentPage <= 1">
+        <i nz-icon nzType="left"></i>
+      </button>
+      <button nz-button disabled>
+        Page {{ currentPage }} / {{ totalPages }}
+      </button>
+      <button nz-button (click)="nextPage()" [disabled]="currentPage >= totalPages">
+        <i nz-icon nzType="right"></i>
+      </button>
+    </nz-button-group>
+
+    <nz-divider nzType="vertical"></nz-divider>
+
+    <button nz-button [nzType]="isDrawing ? 'primary' : 'default'" (click)="toggleDrawing()">
+      <i nz-icon nzType="edit"></i>
+      {{ isDrawing ? 'Drawing Mode ON' : 'Drawing Mode OFF' }}
+    </button>
+
+    <button nz-button [nzType]="showGrid ? 'primary' : 'default'" (click)="showGrid = !showGrid; redrawOverlay()">
+      <i nz-icon nzType="table"></i>
+      Grid
+    </button>
+
+    <nz-divider nzType="vertical"></nz-divider>
+
+    <nz-select [(ngModel)]="documentType" style="width: 140px">
+      <nz-option [nzValue]="'TRANSIENT'" nzLabel="Transient"></nz-option>
+      <nz-option [nzValue]="'LIBRARY'" nzLabel="Library"></nz-option>
+    </nz-select>
+
+    <nz-select [(ngModel)]="recipientIndex" [disabled]="!isDrawing" style="width: 140px">
+      <nz-option [nzValue]="1" nzLabel="Signer"></nz-option>
+    </nz-select>
+
+    <nz-select [(ngModel)]="selectedFieldType" [disabled]="!isDrawing" style="width: 200px">
+      <nz-option-group *ngFor="let group of fieldTypeGroups" [nzLabel]="group.label">
+        <nz-option 
+          *ngFor="let field of group.items" 
+          [nzValue]="(field.label + '_' + field.inputType + '_' + field.contentType).toLowerCase()" 
+          [nzLabel]="field.label"
+          nzCustomContent>
+          <i nz-icon [nzType]="field.icon" [style.color]="field.color"></i>
+          {{ field.label }}
+        </nz-option>
+      </nz-option-group>
+    </nz-select>
+  </div>
+
+  <div class="pdf-canvas-container" *ngIf="pdfDocument">
+    <canvas #pdfCanvas class="pdf-canvas"></canvas>
+    <canvas #drawingCanvas 
+            class="drawing-canvas" 
+            [class.drawing-mode]="isDrawing"
+            (mousedown)="onMouseDown($event)"
+            (mousemove)="onMouseMove($event)"
+            (mouseup)="onMouseUp($event)">
+    </canvas>
+  </div>
+</div>

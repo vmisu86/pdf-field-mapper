@@ -1,59 +1,65 @@
-# PdfFieldMapper
+# PDF Field Mapper for Adobe Sign
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 19.2.3.
+![PDF Field Mapper Interface](./src/assets/pdf-field-mapper-hero-image.svg)
 
-## Development server
+A visual PDF field mapping tool that allows you to configure Adobe Sign form fields without leaving your application. This Angular-based solution demonstrates how to embed document preparation capabilities directly into your own applications, eliminating the need to switch to Adobe Sign's interface.
 
-To start a local development server, run:
+🚀 **[Live Demo](https://pdfmapper.misuvarga.com/)** | 📖 **[Read the Article](https://misu-varga.com/blog/article/15)**
 
+
+📖 **[Read the full article about this project](https://misu-varga.com/blog/article/15)**
+
+## Overview
+
+While Adobe Sign provides its own interface for adding form fields to documents, requiring users to leave your application disrupts workflows and creates training overhead. This project proves that field mapping can be seamlessly integrated into your existing applications using Adobe Sign's API.
+
+### Key Features
+
+- 📄 **Visual PDF rendering** with PDF.js
+- ✏️ **Draw fields directly** on PDF documents
+- 🎯 **Precise positioning** with coordinate grid overlay
+- 📝 **Support for all Adobe Sign field types** (text, signature, date, checkbox, etc.)
+- 👥 **Multi-recipient support** (Signer, Approver)
+- 💾 **Import/Export field configurations** as JSON
+- 🔄 **Adobe Sign API-compatible** export format
+- 🎨 **Clean, modern UI** with Ant Design (ng-zorro)
+
+## Use Cases
+
+- **Enterprise Applications**: Embed document configuration directly in your business applications
+- **Document Management Systems**: Add field mapping as a native feature
+- **CRM Integration**: Configure contracts without leaving your CRM
+- **Workflow Automation**: Programmatically generate field configurations
+
+## Technical Stack
+
+- **Angular 19**: Component-based architecture for easy integration
+- **PDF.js**: Client-side PDF rendering
+- **Ant Design (ng-zorro)**: Professional UI components
+- **TypeScript**: Type-safe development
+- **RxJS**: Reactive state management
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or higher)
+- npm or yarn
+- Angular CLI (`npm install -g @angular/cli`)
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/vmisu86/pdf-field-mapper.git
+cd pdf-field-mapper
+```
+2. Install dependencies:
+```bash
+npm install
+```
+3. Start the development server:
 ```bash
 ng serve
 ```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+4. Open your browser and navigate to http://localhost:4200/

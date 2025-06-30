@@ -33,7 +33,7 @@
 
     <nz-divider nzType="vertical"></nz-divider>
 
-    <nz-select [(ngModel)]="documentType" style="width: 140px">
+    <nz-select [ngModel]="documentType" (ngModelChange)="changeDocumentType($event)" style="width: 140px">
       <nz-option [nzValue]="'TRANSIENT'" nzLabel="Transient"></nz-option>
       <nz-option [nzValue]="'LIBRARY'" nzLabel="Library"></nz-option>
     </nz-select>
@@ -44,11 +44,9 @@
 
     <nz-select [(ngModel)]="selectedFieldType" [disabled]="!isDrawing" style="width: 200px">
       <nz-option-group *ngFor="let group of fieldTypeGroups" [nzLabel]="group.label">
-        <nz-option 
-          *ngFor="let field of group.items" 
-          [nzValue]="(field.label + '_' + field.inputType + '_' + field.contentType).toLowerCase()" 
-          [nzLabel]="field.label"
-          nzCustomContent>
+        <nz-option *ngFor="let field of group.items"
+          [nzValue]="(field.label + '_' + field.inputType + '_' + field.contentType).toLowerCase()"
+          [nzLabel]="field.label" nzCustomContent>
           <i nz-icon [nzType]="field.icon" [style.color]="field.color"></i>
           {{ field.label }}
         </nz-option>
@@ -58,12 +56,8 @@
 
   <div class="pdf-canvas-container" *ngIf="pdfDocument">
     <canvas #pdfCanvas class="pdf-canvas"></canvas>
-    <canvas #drawingCanvas 
-            class="drawing-canvas" 
-            [class.drawing-mode]="isDrawing"
-            (mousedown)="onMouseDown($event)"
-            (mousemove)="onMouseMove($event)"
-            (mouseup)="onMouseUp($event)">
+    <canvas #drawingCanvas class="drawing-canvas" [class.drawing-mode]="isDrawing" (mousedown)="onMouseDown($event)"
+      (mousemove)="onMouseMove($event)" (mouseup)="onMouseUp($event)">
     </canvas>
   </div>
 </div>

@@ -9,6 +9,8 @@ import { NzSelectModule } from 'ng-zorro-antd/select';
 import { PdfFieldService } from '../../services/pdf-field.service';
 import { AdobeDocumentType, Field, FieldTypeCombination, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
 import * as pdfjsLib from 'pdfjs-dist';
+import { NzMessageService } from 'ng-zorro-antd/message';
+import { NzModalService } from 'ng-zorro-antd/modal';
 
 // Configure PDF.js worker with CDN
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
@@ -101,7 +103,7 @@ export class PdfViewerComponent implements OnInit {
 
   FormFieldInputType = FormFieldInputType;
 
-  constructor(private pdfFieldService: PdfFieldService) { }
+  constructor(private pdfFieldService: PdfFieldService, private modal: NzModalService) { }
 
   ngOnInit(): void {
     this.pdfFieldService.pdfDocument$.subscribe(async (pdfDoc) => {
@@ -478,6 +480,35 @@ export class PdfViewerComponent implements OnInit {
       ft.inputType === field.inputType && ft.contentType === field.contentType
     );
     return combination?.color || '#1890ff';
+  }
+
+  changeDocumentType(type: AdobeDocumentType): void {
+    this.modal.create({
+      nzTitle: 'Change Document Type - Field Remapping Required',
+      nzContent: `
+    <p><strong>Changing the document type will remap all field coordinates.</strong></p>
+    <p>Adobe Sign uses different coordinate systems:</p>
+    <ul style="margin: 10px 0;">
+      <li><strong>TRANSIENT:</strong> Origin at bottom-left (0,0)</li>
+      <li><strong>LIBRARY:</strong> Origin at top-left (0,0)</li>
+    </ul>
+    <p>All your fields will be automatically repositioned to maintain their visual placement in the new coordinate system. The Y-coordinates will be recalculated.</p>
+    <p style="color: #ff4d4f; margin-top: 10px;">
+      <strong>Note:</strong> This affects the exported JSON values. Please verify field positions after the change.
+    </p>
+  `,
+      nzClosable: true,
+      nzOkText: 'Continue with Remapping',
+      nzOkType: 'primary',
+      nzCancelText: 'Cancel',
+      nzOnOk: () => {
+        this.documentType = type;
+        this.redrawOverlay();
+      },
+      nzWidth: 520,
+      nzMaskClosable: false,
+      nzIconType: 'exclamation-circle'
+    });
   }
 
   @HostListener('window:resize')

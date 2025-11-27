@@ -6,6 +6,7 @@ import { NzUploadModule } from 'ng-zorro-antd/upload';
 import { NzIconModule } from 'ng-zorro-antd/icon';
 import { NzDividerModule } from 'ng-zorro-antd/divider';
 import { NzSelectModule } from 'ng-zorro-antd/select';
+import { NzSpaceModule } from 'ng-zorro-antd/space';
 import { PdfFieldService } from '../../services/pdf-field.service';
 import { AdobeDocumentType, Field, FieldTypeCombination, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -26,7 +27,8 @@ import { NzModalService } from 'ng-zorro-antd/modal';
     NzUploadModule,
     NzIconModule,
     NzDividerModule,
-    NzSelectModule
+    NzSelectModule,
+    NzSpaceModule
   ],
   templateUrl: './pdf-viewer.component.html',
   styleUrls: ['./pdf-viewer.component.less']

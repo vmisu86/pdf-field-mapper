@@ -7,17 +7,17 @@
       </button>
     </nz-upload>
 
-    <nz-button-group>
-      <button nz-button (click)="previousPage()" [disabled]="currentPage <= 1">
+    <nz-space>
+      <button *nzSpaceItem nz-button (click)="previousPage()" [disabled]="currentPage <= 1">
         <i nz-icon nzType="left"></i>
       </button>
-      <button nz-button disabled>
+      <button *nzSpaceItem nz-button disabled>
         Page {{ currentPage }} / {{ totalPages }}
       </button>
-      <button nz-button (click)="nextPage()" [disabled]="currentPage >= totalPages">
+      <button *nzSpaceItem nz-button (click)="nextPage()" [disabled]="currentPage >= totalPages">
         <i nz-icon nzType="right"></i>
       </button>
-    </nz-button-group>
+    </nz-space>
 
     <nz-divider nzType="vertical"></nz-divider>
 

@@ -45,6 +45,10 @@ export class PdfViewerComponent implements OnInit {
   showGrid = false;
   drawingStart: { x: number; y: number } | null = null;
 
+  // Selection state
+  selectedField: Field | null = null;
+  hoveredField: Field | null = null;
+
   private renderTask: any = null;
   private isRendering = false;
 
@@ -106,6 +110,30 @@ export class PdfViewerComponent implements OnInit {
   FormFieldInputType = FormFieldInputType;
 
   constructor(private pdfFieldService: PdfFieldService, private modal: NzModalService) { }
+
+  /**
+   * Handle keyboard shortcuts
+   */
+  @HostListener('window:keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent): void {
+    // Delete key: delete selected field
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (this.selectedField && !this.isDrawing) {
+        event.preventDefault();
+        this.pdfFieldService.deleteField(this.selectedField.id);
+        this.selectedField = null;
+        this.redrawOverlay();
+      }
+    }
+
+    // Escape key: deselect field
+    if (event.key === 'Escape') {
+      if (this.selectedField) {
+        this.selectedField = null;
+        this.redrawOverlay();
+      }
+    }
+  }
 
   ngOnInit(): void {
     this.pdfFieldService.pdfDocument$.subscribe(async (pdfDoc) => {
@@ -229,21 +257,43 @@ export class PdfViewerComponent implements OnInit {
   }
 
   onMouseDown(event: MouseEvent): void {
-    if (!this.isDrawing) return;
-
     const rect = this.drawingCanvas.nativeElement.getBoundingClientRect();
-    this.drawingStart = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    };
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    if (this.isDrawing) {
+      // Drawing mode: start drawing a new field
+      this.drawingStart = { x, y };
+    } else {
+      // Selection mode: select field at click position
+      const fieldAtPoint = this.getFieldAtPoint(x, y);
+      this.selectedField = fieldAtPoint;
+      this.redrawOverlay();
+    }
   }
 
   onMouseMove(event: MouseEvent): void {
-    if (!this.isDrawing || !this.drawingStart) return;
-
     const rect = this.drawingCanvas.nativeElement.getBoundingClientRect();
-    const currentX = event.clientX - rect.left;
-    const currentY = event.clientY - rect.top;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    // Update hover state when not in drawing mode
+    if (!this.isDrawing) {
+      const fieldAtPoint = this.getFieldAtPoint(x, y);
+      if (fieldAtPoint !== this.hoveredField) {
+        this.hoveredField = fieldAtPoint;
+        this.redrawOverlay();
+      }
+      // Update cursor
+      this.drawingCanvas.nativeElement.style.cursor = fieldAtPoint ? 'pointer' : 'default';
+      return;
+    }
+
+    // Drawing mode
+    if (!this.drawingStart) return;
+
+    const currentX = x;
+    const currentY = y;
 
     const ctx = this.drawingCanvas.nativeElement.getContext('2d')!;
     this.redrawOverlay();
@@ -315,9 +365,9 @@ export class PdfViewerComponent implements OnInit {
 
     const field: Field = {
       id: `field_${Date.now()}`,
-      name: `${selectedType.label} ${fieldCount}`,
+      name: this.generateSmartFieldName(selectedType.inputType, selectedType.contentType ?? FormFieldContentType.DATA),
       inputType: selectedType.inputType,
-      contentType: selectedType.contentType,
+      contentType: selectedType.contentType ?? FormFieldContentType.DATA,
       readOnly: selectedType.readOnly,
       required: false,
       validation: selectedType.validation,
@@ -352,6 +402,107 @@ export class PdfViewerComponent implements OnInit {
     return this.fieldTypeCombinations.find(ft =>
       `${ft.label}_${ft.inputType}_${ft.contentType}`.toLowerCase() === this.selectedFieldType
     );
+  }
+
+  /**
+   * Draw selection handles around a field
+   */
+  drawSelectionHandles(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number): void {
+    const handleSize = 8;
+    const handles = [
+      { x: left, y: top },  // Top-left
+      { x: left + width, y: top },  // Top-right
+      { x: left, y: top + height },  // Bottom-left
+      { x: left + width, y: top + height },  // Bottom-right
+    ];
+
+    ctx.fillStyle = '#1890ff';
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+
+    handles.forEach(handle => {
+      ctx.fillRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
+      ctx.strokeRect(handle.x - handleSize / 2, handle.y - handleSize / 2, handleSize, handleSize);
+    });
+  }
+
+  /**
+   * Find field at given canvas coordinates
+   */
+  getFieldAtPoint(x: number, y: number): Field | null {
+    let viewport: any = null;
+    this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
+
+    if (!viewport) return null;
+
+    // Check fields in reverse order (top fields first)
+    const fieldsOnPage = this.fields
+      .filter(field => field.locations.pageNumber === this.currentPage)
+      .reverse();
+
+    for (const field of fieldsOnPage) {
+      const left = field.locations.left * viewport.scale;
+      const width = field.locations.width * viewport.scale;
+      const height = field.locations.height * viewport.scale;
+
+      let top: number;
+      if (this.documentType === AdobeDocumentType.LIBRARY) {
+        top = field.locations.top * viewport.scale;
+      } else {
+        const pageHeightInPoints = viewport.viewBox[3] - viewport.viewBox[1];
+        const pdfTop = field.locations.top;
+        const topInPoints = pageHeightInPoints - pdfTop;
+        top = topInPoints * viewport.scale;
+      }
+
+      // Check if point is inside field bounds
+      if (x >= left && x <= left + width && y >= top && y <= top + height) {
+        return field;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Generate smart field name based on input type and content type
+   * Examples:
+   * - TEXT_FIELD + SIGNER_NAME → "signer_name_1"
+   * - SIGNATURE + SIGNATURE → "signature_1"
+   * - DATE + SIGNATURE_DATE → "date_signed_1"
+   * - TEXT_FIELD + DATA → "text_field_1"
+   */
+  generateSmartFieldName(inputType: FormFieldInputType, contentType: FormFieldContentType): string {
+    // Define smart names for common combinations
+    const nameMap: { [key: string]: string } = {
+      // Text fields
+      [`${FormFieldInputType.TEXT_FIELD}_${FormFieldContentType.DATA}`]: 'text_field',
+      [`${FormFieldInputType.TEXT_FIELD}_${FormFieldContentType.SIGNER_NAME}`]: 'signer_name',
+      [`${FormFieldInputType.TEXT_FIELD}_${FormFieldContentType.SIGNER_EMAIL}`]: 'signer_email',
+      [`${FormFieldInputType.MULTILINE}_${FormFieldContentType.DATA}`]: 'multiline_text',
+
+      // Signature fields
+      [`${FormFieldInputType.SIGNATURE}_${FormFieldContentType.SIGNATURE}`]: 'signature',
+      [`${FormFieldInputType.SIGNATURE}_${FormFieldContentType.SIGNER_INITIALS}`]: 'initials',
+
+      // Date fields
+      [`${FormFieldInputType.DATE}_${FormFieldContentType.DATA}`]: 'date_field',
+      [`${FormFieldInputType.DATE}_${FormFieldContentType.SIGNATURE_DATE}`]: 'date_signed',
+
+      // Other fields
+      [`${FormFieldInputType.CHECKBOX}_${FormFieldContentType.DATA}`]: 'checkbox',
+      [`${FormFieldInputType.RADIO}_${FormFieldContentType.DATA}`]: 'radio_button',
+    };
+
+    const key = `${inputType}_${contentType}`;
+    const baseName = nameMap[key] || 'field';
+
+    // Count existing fields of the same type
+    const existingCount = this.fields.filter(f =>
+      f.inputType === inputType && f.contentType === contentType
+    ).length;
+
+    return `${baseName}_${existingCount + 1}`;
   }
 
   getFieldTypeIcon(field: Field): string {
@@ -440,12 +591,21 @@ export class PdfViewerComponent implements OnInit {
         }
 
         const color = this.getFieldColor(field);
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color + '33';
-        ctx.lineWidth = 2;
+        const isSelected = this.selectedField?.id === field.id;
+        const isHovered = this.hoveredField?.id === field.id;
+
+        // Draw field background and border
+        ctx.strokeStyle = isSelected ? '#1890ff' : (isHovered ? '#40a9ff' : color);
+        ctx.fillStyle = (isSelected ? '#1890ff' : (isHovered ? '#40a9ff' : color)) + '33';
+        ctx.lineWidth = isSelected ? 3 : (isHovered ? 2.5 : 2);
 
         ctx.fillRect(left, top, width, height);
         ctx.strokeRect(left, top, width, height);
+
+        // Draw selection handles if selected
+        if (isSelected) {
+          this.drawSelectionHandles(ctx, left, top, width, height);
+        }
 
         ctx.fillStyle = color;
         ctx.font = '11px Arial';

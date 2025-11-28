@@ -11,5 +11,5 @@ import { PdfViewerComponent } from './components/pdf-viewer/pdf-viewer.component
   styleUrls: ['./app.component.less']
 })
 export class AppComponent {
-  title = 'PDF Field Mapper for Adobe Sign';
+  title = 'FieldForge for Adobe Sign';
 }

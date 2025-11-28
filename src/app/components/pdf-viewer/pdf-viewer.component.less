@@ -47,10 +47,10 @@
       left: 50%;
       top: 20px;
       transform: translateX(-50%);
-      pointer-events: none;
-      
+      pointer-events: all;  // Always allow mouse events for drawing and dragging
+      cursor: default;
+
       &.drawing-mode {
-        pointer-events: all;
         cursor: crosshair;
       }
     }

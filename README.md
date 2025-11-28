@@ -6,7 +6,6 @@ A visual PDF field mapping tool that allows you to configure Adobe Sign form fie
 
 🚀 **[Live Demo](https://pdfmapper.misuvarga.com/)** | 📖 **[Read the Article](https://misu-varga.com/blog/article/15)**
 
-
 📖 **[Read the full article about this project](https://misu-varga.com/blog/article/15)**
 
 ## Overview
@@ -33,7 +32,7 @@ While Adobe Sign provides its own interface for adding form fields to documents,
 
 ## Technical Stack
 
-- **Angular 19**: Component-based architecture for easy integration
+- **Angular 20**: Component-based architecture for easy integration
 - **PDF.js**: Client-side PDF rendering
 - **Ant Design (ng-zorro)**: Professional UI components
 - **TypeScript**: Type-safe development
@@ -50,16 +49,22 @@ While Adobe Sign provides its own interface for adding form fields to documents,
 ### Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/vmisu86/pdf-field-mapper.git
 cd pdf-field-mapper
 ```
+
 2. Install dependencies:
+
 ```bash
 npm install
 ```
+
 3. Start the development server:
+
 ```bash
 ng serve
 ```
+
 4. Open your browser and navigate to http://localhost:4200/

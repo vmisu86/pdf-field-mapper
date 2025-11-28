@@ -96,18 +96,18 @@
     </div>
   </nz-header>
 
-  <!-- Mode Indicator Banner -->
+  <!-- Field Type Indicator Banner -->
   <nz-alert
-    *ngIf="isDrawing"
+    *ngIf="selectedFieldType && getSelectedFieldType()"
     nzType="info"
     nzBanner
-    [nzMessage]="'🎨 DRAWING MODE - Click and drag on the PDF to create a ' + getSelectedFieldType()?.label"
+    [nzMessage]="'✏️ Selected: ' + getSelectedFieldType()?.label + ' - Click on empty canvas to draw, click on fields to select'"
     nzCloseable
-    (nzOnClose)="isDrawing = false">
+    (nzOnClose)="selectedFieldType = ''">
   </nz-alert>
 
   <nz-layout>
-    <!-- Left Sidebar - Field Types -->
+    <!-- Left Sidebar - Field Types & List -->
     <nz-sider
       *ngIf="!leftSidebarCollapsed"
       [nzWidth]="280"
@@ -126,21 +126,8 @@
           <i nz-icon nzType="search"></i>
         </ng-template>
 
-        <!-- Mode Toggle -->
-        <div class="mode-toggle">
-          <button
-            nz-button
-            nzBlock
-            [nzType]="isDrawing ? 'primary' : 'default'"
-            (click)="toggleDrawing()"
-            nzSize="large">
-            <i nz-icon [nzType]="isDrawing ? 'edit' : 'select'"></i>
-            {{ isDrawing ? 'Drawing Mode' : 'Selection Mode' }}
-          </button>
-        </div>
-
         <!-- Field Type Cards -->
-        <div class="field-types-container" *ngIf="isDrawing">
+        <div class="field-types-container">
           <div *ngFor="let group of fieldTypeGroups" class="field-type-group">
             <div class="group-label">{{ group.label }}</div>
             <div class="field-type-grid">
@@ -163,7 +150,7 @@
         </div>
 
         <!-- Field List -->
-        <div class="fields-list-container" *ngIf="!isDrawing && fields.length > 0">
+        <div class="fields-list-container" *ngIf="fields.length > 0" style="margin-top: 24px;">
           <div class="group-label">Fields on Page {{ currentPage }}</div>
           <nz-list [nzDataSource]="fieldsOnCurrentPage" nzSize="small">
             <nz-list-item
@@ -179,13 +166,6 @@
             </nz-list-item>
           </nz-list>
         </div>
-
-        <!-- Empty State -->
-        <nz-empty
-          *ngIf="!isDrawing && fieldsOnCurrentPage.length === 0"
-          nzNotFoundContent="No fields on this page"
-          [nzNotFoundImage]="'simple'">
-        </nz-empty>
       </div>
     </nz-sider>
 
@@ -216,7 +196,7 @@
           <canvas
             #drawingCanvas
             class="drawing-canvas"
-            [class.drawing-mode]="isDrawing"
+            [class.drawing-mode]="selectedFieldType && getSelectedFieldType()"
             (mousedown)="onMouseDown($event)"
             (mousemove)="onMouseMove($event)"
             (mouseup)="onMouseUp($event)">

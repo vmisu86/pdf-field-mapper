@@ -314,15 +314,10 @@ export class PdfViewerComponent implements OnInit {
 
   onMouseDown(event: MouseEvent): void {
     const coords = this.coordService.getCanvasCoordinates(event, this.drawingCanvas.nativeElement);
-
-    if (this.isDrawing) {
-      this.drawingStart = coords;
-      return;
-    }
-
     const viewport = this.getCurrentViewport();
     if (!viewport) return;
 
+    // First, check if clicking on a resize handle of the selected field
     if (this.selectedField) {
       const handle = this.interactionService.getResizeHandleAtPoint(
         coords.x,
@@ -338,16 +333,22 @@ export class PdfViewerComponent implements OnInit {
       }
     }
 
+    // Second, check if clicking on an existing field
     const fieldAtPoint = this.getFieldAtPoint(coords.x, coords.y);
 
     if (fieldAtPoint) {
+      // Clicking on a field - select it and allow dragging
       if (this.selectedField?.id !== fieldAtPoint.id) {
         this.selectedField = fieldAtPoint;
         this.redrawOverlay();
       }
-
       this.interactionService.startDrag(fieldAtPoint, coords.x, coords.y);
     } else {
+      // Clicking on empty canvas - start drawing if a field type is selected
+      if (this.selectedFieldType && this.getSelectedFieldType()) {
+        this.drawingStart = coords;
+        this.isDrawing = true;
+      }
       this.selectedField = null;
       this.redrawOverlay();
     }
@@ -397,6 +398,7 @@ export class PdfViewerComponent implements OnInit {
 
     if (this.isDrawing && this.drawingStart) {
       this.completeFieldCreation(coords);
+      this.isDrawing = false; // Reset drawing state after field creation
     }
   }
 
@@ -646,10 +648,6 @@ export class PdfViewerComponent implements OnInit {
   }
 
   // ==================== Public UI Methods ====================
-
-  toggleDrawing(): void {
-    this.isDrawing = !this.isDrawing;
-  }
 
   getRecipientLabel(index: number): string {
     return this.pdfFieldService.getRecipientTypeName(index);

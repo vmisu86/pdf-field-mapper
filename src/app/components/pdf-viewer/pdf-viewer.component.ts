@@ -7,7 +7,9 @@ import { NzIconModule } from 'ng-zorro-antd/icon';
 import { NzDividerModule } from 'ng-zorro-antd/divider';
 import { NzSelectModule } from 'ng-zorro-antd/select';
 import { NzSpaceModule } from 'ng-zorro-antd/space';
+import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
 import { PdfFieldService } from '../../services/pdf-field.service';
+import { HistoryService } from '../../services/history.service';
 import { AdobeDocumentType, Field, FieldTypeCombination, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
 import * as pdfjsLib from 'pdfjs-dist';
 import { NzMessageService } from 'ng-zorro-antd/message';
@@ -28,7 +30,8 @@ import { NzModalService } from 'ng-zorro-antd/modal';
     NzIconModule,
     NzDividerModule,
     NzSelectModule,
-    NzSpaceModule
+    NzSpaceModule,
+    NzToolTipModule
   ],
   templateUrl: './pdf-viewer.component.html',
   styleUrls: ['./pdf-viewer.component.less']
@@ -48,6 +51,22 @@ export class PdfViewerComponent implements OnInit {
   // Selection state
   selectedField: Field | null = null;
   hoveredField: Field | null = null;
+
+  // Drag/Resize state
+  isDragging = false;
+  isResizing = false;
+  dragStartPos: { x: number; y: number } | null = null;
+  dragFieldStartPos: { left: number; top: number } | null = null;
+  resizeHandle: string | null = null; // 'tl', 'tr', 'bl', 'br', 't', 'r', 'b', 'l'
+  resizeStartBounds: { left: number; top: number; width: number; height: number } | null = null;
+
+  // Snap to grid
+  snapToGrid = false;
+  gridSize = 10; // points
+
+  // Undo/Redo state
+  canUndo = false;
+  canRedo = false;
 
   private renderTask: any = null;
   private isRendering = false;
@@ -109,13 +128,35 @@ export class PdfViewerComponent implements OnInit {
 
   FormFieldInputType = FormFieldInputType;
 
-  constructor(private pdfFieldService: PdfFieldService, private modal: NzModalService) { }
+  constructor(
+    private pdfFieldService: PdfFieldService,
+    public historyService: HistoryService,
+    private modal: NzModalService
+  ) { }
 
   /**
    * Handle keyboard shortcuts
    */
   @HostListener('window:keydown', ['$event'])
   onKeyDown(event: KeyboardEvent): void {
+    // Ctrl+Z: Undo
+    if (event.ctrlKey && event.key === 'z' && !event.shiftKey) {
+      event.preventDefault();
+      this.historyService.undo();
+      this.selectedField = null;
+      this.redrawOverlay();
+      return;
+    }
+
+    // Ctrl+Shift+Z or Ctrl+Y: Redo
+    if ((event.ctrlKey && event.shiftKey && event.key === 'Z') || (event.ctrlKey && event.key === 'y')) {
+      event.preventDefault();
+      this.historyService.redo();
+      this.selectedField = null;
+      this.redrawOverlay();
+      return;
+    }
+
     // Delete key: delete selected field
     if (event.key === 'Delete' || event.key === 'Backspace') {
       if (this.selectedField && !this.isDrawing) {
@@ -124,14 +165,18 @@ export class PdfViewerComponent implements OnInit {
         this.selectedField = null;
         this.redrawOverlay();
       }
+      return;
     }
 
-    // Escape key: deselect field
+    // Escape key: deselect field or cancel drag/resize
     if (event.key === 'Escape') {
-      if (this.selectedField) {
+      if (this.isDragging || this.isResizing) {
+        this.cancelDragOrResize();
+      } else if (this.selectedField) {
         this.selectedField = null;
         this.redrawOverlay();
       }
+      return;
     }
   }
 
@@ -148,6 +193,15 @@ export class PdfViewerComponent implements OnInit {
     this.pdfFieldService.fields$.subscribe(fields => {
       this.fields = fields;
       this.redrawOverlay();
+    });
+
+    // Subscribe to undo/redo state
+    this.historyService.canUndo$.subscribe(canUndo => {
+      this.canUndo = canUndo;
+    });
+
+    this.historyService.canRedo$.subscribe(canRedo => {
+      this.canRedo = canRedo;
     });
   }
 
@@ -264,10 +318,53 @@ export class PdfViewerComponent implements OnInit {
     if (this.isDrawing) {
       // Drawing mode: start drawing a new field
       this.drawingStart = { x, y };
+      return;
+    }
+
+    // Not in drawing mode - check for selection, drag, or resize
+    let viewport: any = null;
+    this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
+
+    if (!viewport) return;
+
+    // Check if clicking on selected field's resize handle
+    if (this.selectedField) {
+      const handle = this.getResizeHandleAtPoint(x, y, this.selectedField, viewport);
+      if (handle) {
+        // Start resize operation
+        this.isResizing = true;
+        this.resizeHandle = handle;
+        this.dragStartPos = { x, y };
+        this.resizeStartBounds = {
+          left: this.selectedField.locations.left,
+          top: this.selectedField.locations.top,
+          width: this.selectedField.locations.width,
+          height: this.selectedField.locations.height
+        };
+        return;
+      }
+    }
+
+    // Check for field selection or drag
+    const fieldAtPoint = this.getFieldAtPoint(x, y);
+
+    if (fieldAtPoint) {
+      if (this.selectedField?.id === fieldAtPoint.id) {
+        // Clicking on already selected field - start drag
+        this.isDragging = true;
+        this.dragStartPos = { x, y };
+        this.dragFieldStartPos = {
+          left: fieldAtPoint.locations.left,
+          top: fieldAtPoint.locations.top
+        };
+      } else {
+        // Select different field
+        this.selectedField = fieldAtPoint;
+        this.redrawOverlay();
+      }
     } else {
-      // Selection mode: select field at click position
-      const fieldAtPoint = this.getFieldAtPoint(x, y);
-      this.selectedField = fieldAtPoint;
+      // Clicked on empty space - deselect
+      this.selectedField = null;
       this.redrawOverlay();
     }
   }
@@ -277,41 +374,111 @@ export class PdfViewerComponent implements OnInit {
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
-    // Update hover state when not in drawing mode
-    if (!this.isDrawing) {
-      const fieldAtPoint = this.getFieldAtPoint(x, y);
-      if (fieldAtPoint !== this.hoveredField) {
-        this.hoveredField = fieldAtPoint;
-        this.redrawOverlay();
-      }
-      // Update cursor
-      this.drawingCanvas.nativeElement.style.cursor = fieldAtPoint ? 'pointer' : 'default';
-      return;
-    }
-
-    // Drawing mode
-    if (!this.drawingStart) return;
-
-    const currentX = x;
-    const currentY = y;
-
-    const ctx = this.drawingCanvas.nativeElement.getContext('2d')!;
-    this.redrawOverlay();
-
-    ctx.strokeStyle = '#1890ff';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.strokeRect(
-      this.drawingStart.x,
-      this.drawingStart.y,
-      currentX - this.drawingStart.x,
-      currentY - this.drawingStart.y
-    );
-
     let viewport: any = null;
     this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
 
-    if (viewport) {
+    if (!viewport) return;
+
+    // Handle dragging
+    if (this.isDragging && this.selectedField && this.dragStartPos && this.dragFieldStartPos) {
+      const deltaX = this.pdfFieldService.pixelsToPoints(x - this.dragStartPos.x, viewport.scale);
+      const deltaY = this.pdfFieldService.pixelsToPoints(y - this.dragStartPos.y, viewport.scale);
+
+      let newLeft = this.dragFieldStartPos.left + deltaX;
+      let newTop = this.dragFieldStartPos.top + (this.documentType === AdobeDocumentType.LIBRARY ? deltaY : -deltaY);
+
+      // Apply snap to grid
+      newLeft = this.snapToGridPoint(newLeft);
+      newTop = this.snapToGridPoint(newTop);
+
+      // Update field position temporarily (not in history yet)
+      this.pdfFieldService.moveField(this.selectedField.id, newLeft, newTop, false);
+      return;
+    }
+
+    // Handle resizing
+    if (this.isResizing && this.selectedField && this.dragStartPos && this.resizeStartBounds && this.resizeHandle) {
+      const deltaX = this.pdfFieldService.pixelsToPoints(x - this.dragStartPos.x, viewport.scale);
+      const deltaY = this.pdfFieldService.pixelsToPoints(y - this.dragStartPos.y, viewport.scale);
+
+      let { left, top, width, height } = this.resizeStartBounds;
+
+      // Apply deltas based on which handle is being dragged
+      const yMultiplier = this.documentType === AdobeDocumentType.LIBRARY ? 1 : -1;
+
+      switch (this.resizeHandle) {
+        case 'tl': // Top-left
+          left += deltaX;
+          top += deltaY * yMultiplier;
+          width -= deltaX;
+          height -= deltaY * yMultiplier;
+          break;
+        case 'tr': // Top-right
+          top += deltaY * yMultiplier;
+          width += deltaX;
+          height -= deltaY * yMultiplier;
+          break;
+        case 'bl': // Bottom-left
+          left += deltaX;
+          width -= deltaX;
+          height += deltaY * yMultiplier;
+          break;
+        case 'br': // Bottom-right
+          width += deltaX;
+          height += deltaY * yMultiplier;
+          break;
+        case 't': // Top edge
+          top += deltaY * yMultiplier;
+          height -= deltaY * yMultiplier;
+          break;
+        case 'b': // Bottom edge
+          height += deltaY * yMultiplier;
+          break;
+        case 'l': // Left edge
+          left += deltaX;
+          width -= deltaX;
+          break;
+        case 'r': // Right edge
+          width += deltaX;
+          break;
+      }
+
+      // Apply minimum size constraints
+      const minSize = 20; // points
+      if (width < minSize) width = minSize;
+      if (height < minSize) height = minSize;
+
+      // Apply snap to grid
+      left = this.snapToGridPoint(left);
+      top = this.snapToGridPoint(top);
+      width = this.snapToGridPoint(width);
+      height = this.snapToGridPoint(height);
+
+      // Update field temporarily (not in history yet)
+      this.pdfFieldService.resizeField(this.selectedField.id, left, top, width, height, false);
+      return;
+    }
+
+    // Handle drawing mode
+    if (this.isDrawing) {
+      if (!this.drawingStart) return;
+
+      const currentX = x;
+      const currentY = y;
+
+      const ctx = this.drawingCanvas.nativeElement.getContext('2d')!;
+      this.redrawOverlay();
+
+      ctx.strokeStyle = '#1890ff';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(
+        this.drawingStart.x,
+        this.drawingStart.y,
+        currentX - this.drawingStart.x,
+        currentY - this.drawingStart.y
+      );
+
       const pixelLeft = Math.min(this.drawingStart.x, currentX);
       const pixelTop = Math.min(this.drawingStart.y, currentY);
       const pixelWidth = Math.abs(currentX - this.drawingStart.x);
@@ -330,10 +497,93 @@ export class PdfViewerComponent implements OnInit {
         pixelLeft,
         pixelTop - 5
       );
+      return;
     }
+
+    // Update hover state and cursor
+    const fieldAtPoint = this.getFieldAtPoint(x, y);
+    if (fieldAtPoint !== this.hoveredField) {
+      this.hoveredField = fieldAtPoint;
+      this.redrawOverlay();
+    }
+
+    // Update cursor based on what's under the mouse
+    let cursor = 'default';
+    if (this.selectedField) {
+      const handle = this.getResizeHandleAtPoint(x, y, this.selectedField, viewport);
+      if (handle) {
+        // Resize cursor based on handle
+        const cursorMap: { [key: string]: string } = {
+          'tl': 'nwse-resize', 'br': 'nwse-resize',
+          'tr': 'nesw-resize', 'bl': 'nesw-resize',
+          't': 'ns-resize', 'b': 'ns-resize',
+          'l': 'ew-resize', 'r': 'ew-resize'
+        };
+        cursor = cursorMap[handle] || 'default';
+      } else if (fieldAtPoint?.id === this.selectedField.id) {
+        cursor = 'move';
+      } else if (fieldAtPoint) {
+        cursor = 'pointer';
+      }
+    } else if (fieldAtPoint) {
+      cursor = 'pointer';
+    }
+
+    this.drawingCanvas.nativeElement.style.cursor = cursor;
   }
 
   onMouseUp(event: MouseEvent): void {
+    // Complete drag operation
+    if (this.isDragging && this.selectedField && this.dragFieldStartPos) {
+      const currentField = this.fields.find(f => f.id === this.selectedField?.id);
+      if (currentField) {
+        // Only add to history if position actually changed
+        if (currentField.locations.left !== this.dragFieldStartPos.left ||
+            currentField.locations.top !== this.dragFieldStartPos.top) {
+          // Re-apply the move with history enabled
+          this.pdfFieldService.moveField(
+            currentField.id,
+            currentField.locations.left,
+            currentField.locations.top,
+            true
+          );
+        }
+      }
+      this.isDragging = false;
+      this.dragStartPos = null;
+      this.dragFieldStartPos = null;
+      return;
+    }
+
+    // Complete resize operation
+    if (this.isResizing && this.selectedField && this.resizeStartBounds) {
+      const currentField = this.fields.find(f => f.id === this.selectedField?.id);
+      if (currentField) {
+        // Only add to history if size/position actually changed
+        const bounds = this.resizeStartBounds;
+        if (currentField.locations.left !== bounds.left ||
+            currentField.locations.top !== bounds.top ||
+            currentField.locations.width !== bounds.width ||
+            currentField.locations.height !== bounds.height) {
+          // Re-apply the resize with history enabled
+          this.pdfFieldService.resizeField(
+            currentField.id,
+            currentField.locations.left,
+            currentField.locations.top,
+            currentField.locations.width,
+            currentField.locations.height,
+            true
+          );
+        }
+      }
+      this.isResizing = false;
+      this.resizeHandle = null;
+      this.dragStartPos = null;
+      this.resizeStartBounds = null;
+      return;
+    }
+
+    // Handle drawing mode
     if (!this.isDrawing || !this.drawingStart) return;
 
     const rect = this.drawingCanvas.nativeElement.getBoundingClientRect();
@@ -405,15 +655,21 @@ export class PdfViewerComponent implements OnInit {
   }
 
   /**
-   * Draw selection handles around a field
+   * Draw selection handles around a field (corners + edges)
    */
   drawSelectionHandles(ctx: CanvasRenderingContext2D, left: number, top: number, width: number, height: number): void {
     const handleSize = 8;
     const handles = [
+      // Corner handles
       { x: left, y: top },  // Top-left
       { x: left + width, y: top },  // Top-right
       { x: left, y: top + height },  // Bottom-left
       { x: left + width, y: top + height },  // Bottom-right
+      // Edge handles
+      { x: left + width / 2, y: top },  // Top-middle
+      { x: left + width / 2, y: top + height },  // Bottom-middle
+      { x: left, y: top + height / 2 },  // Left-middle
+      { x: left + width, y: top + height / 2 },  // Right-middle
     ];
 
     ctx.fillStyle = '#1890ff';
@@ -642,6 +898,76 @@ export class PdfViewerComponent implements OnInit {
       ft.inputType === field.inputType && ft.contentType === field.contentType
     );
     return combination?.color || '#1890ff';
+  }
+
+  /**
+   * Snap coordinate to grid if enabled
+   */
+  snapToGridPoint(value: number): number {
+    if (!this.snapToGrid) return value;
+    return Math.round(value / this.gridSize) * this.gridSize;
+  }
+
+  /**
+   * Cancel drag or resize operation
+   */
+  cancelDragOrResize(): void {
+    this.isDragging = false;
+    this.isResizing = false;
+    this.dragStartPos = null;
+    this.dragFieldStartPos = null;
+    this.resizeHandle = null;
+    this.resizeStartBounds = null;
+    this.redrawOverlay();
+  }
+
+  /**
+   * Check if mouse is over a resize handle
+   * Returns handle name or null
+   */
+  getResizeHandleAtPoint(x: number, y: number, field: Field, viewport: any): string | null {
+    if (!field) return null;
+
+    const left = field.locations.left * viewport.scale;
+    const width = field.locations.width * viewport.scale;
+    const height = field.locations.height * viewport.scale;
+
+    let top: number;
+    if (this.documentType === AdobeDocumentType.LIBRARY) {
+      top = field.locations.top * viewport.scale;
+    } else {
+      const pageHeightInPoints = viewport.viewBox[3] - viewport.viewBox[1];
+      const pdfTop = field.locations.top;
+      const topInPoints = pageHeightInPoints - pdfTop;
+      top = topInPoints * viewport.scale;
+    }
+
+    const handleSize = 8;
+    const hitMargin = 4;
+
+    // Check corner handles
+    const handles = [
+      { name: 'tl', x: left, y: top },
+      { name: 'tr', x: left + width, y: top },
+      { name: 'bl', x: left, y: top + height },
+      { name: 'br', x: left + width, y: top + height },
+      // Edge handles
+      { name: 't', x: left + width / 2, y: top },
+      { name: 'b', x: left + width / 2, y: top + height },
+      { name: 'l', x: left, y: top + height / 2 },
+      { name: 'r', x: left + width, y: top + height / 2 },
+    ];
+
+    for (const handle of handles) {
+      const distance = Math.sqrt(
+        Math.pow(x - handle.x, 2) + Math.pow(y - handle.y, 2)
+      );
+      if (distance <= (handleSize / 2 + hitMargin)) {
+        return handle.name;
+      }
+    }
+
+    return null;
   }
 
   changeDocumentType(type: AdobeDocumentType): void {

@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { AdobeDocumentType, Field, IFormFieldGeneratorViewModel } from '../models/field.model';
+import { HistoryService, AddFieldCommand, DeleteFieldCommand, UpdateFieldCommand, MoveFieldCommand, ResizeFieldCommand } from './history.service';
 
 @Injectable({
   providedIn: 'root'
@@ -18,7 +19,7 @@ export class PdfFieldService {
   private currentViewportSubject = new BehaviorSubject<any>(null);
   currentViewport$: Observable<any> = this.currentViewportSubject.asObservable();
 
-  constructor() { }
+  constructor(private historyService: HistoryService) { }
 
   setPdfDocument(doc: any): void {
     this.pdfDocumentSubject.next(doc);
@@ -49,22 +50,153 @@ export class PdfFieldService {
     }
   }
 
-  addField(field: Field): void {
+  addField(field: Field, useHistory: boolean = true): void {
+    if (useHistory) {
+      const command = new AddFieldCommand(
+        field,
+        (f) => this.addFieldInternal(f),
+        (id) => this.deleteFieldInternal(id)
+      );
+      this.historyService.executeCommand(command);
+    } else {
+      this.addFieldInternal(field);
+    }
+  }
+
+  private addFieldInternal(field: Field): void {
     const currentFields = this.fieldsSubject.value;
     this.fieldsSubject.next([...currentFields, field]);
   }
 
-  updateField(id: string, updates: Partial<Field>): void {
+  updateField(id: string, updates: Partial<Field>, useHistory: boolean = true): void {
     const currentFields = this.fieldsSubject.value;
-    const updatedFields = currentFields.map(field => 
-      field.id === id ? { ...field, ...updates } : field
+    const oldField = currentFields.find(f => f.id === id);
+
+    if (!oldField) return;
+
+    const newField = { ...oldField, ...updates };
+
+    if (useHistory) {
+      const command = new UpdateFieldCommand(
+        oldField,
+        newField,
+        (f) => this.updateFieldInternal(f)
+      );
+      this.historyService.executeCommand(command);
+    } else {
+      this.updateFieldInternal(newField);
+    }
+  }
+
+  private updateFieldInternal(field: Field): void {
+    const currentFields = this.fieldsSubject.value;
+    const updatedFields = currentFields.map(f =>
+      f.id === field.id ? field : f
     );
     this.fieldsSubject.next(updatedFields);
   }
 
-  deleteField(id: string): void {
+  deleteField(id: string, useHistory: boolean = true): void {
+    const currentFields = this.fieldsSubject.value;
+    const field = currentFields.find(f => f.id === id);
+
+    if (!field) return;
+
+    if (useHistory) {
+      const command = new DeleteFieldCommand(
+        field,
+        (fieldId) => this.deleteFieldInternal(fieldId),
+        (f) => this.addFieldInternal(f)
+      );
+      this.historyService.executeCommand(command);
+    } else {
+      this.deleteFieldInternal(id);
+    }
+  }
+
+  private deleteFieldInternal(id: string): void {
     const currentFields = this.fieldsSubject.value;
     this.fieldsSubject.next(currentFields.filter(field => field.id !== id));
+  }
+
+  /**
+   * Move a field to a new position
+   */
+  moveField(id: string, newLeft: number, newTop: number, useHistory: boolean = true): void {
+    const currentFields = this.fieldsSubject.value;
+    const field = currentFields.find(f => f.id === id);
+
+    if (!field) return;
+
+    const oldLeft = field.locations.left;
+    const oldTop = field.locations.top;
+
+    if (useHistory) {
+      const command = new MoveFieldCommand(
+        id,
+        oldLeft,
+        oldTop,
+        newLeft,
+        newTop,
+        (fieldId, left, top) => this.moveFieldInternal(fieldId, left, top)
+      );
+      this.historyService.executeCommand(command);
+    } else {
+      this.moveFieldInternal(id, newLeft, newTop);
+    }
+  }
+
+  private moveFieldInternal(id: string, left: number, top: number): void {
+    const currentFields = this.fieldsSubject.value;
+    const updatedFields = currentFields.map(field =>
+      field.id === id
+        ? { ...field, locations: { ...field.locations, left, top } }
+        : field
+    );
+    this.fieldsSubject.next(updatedFields);
+  }
+
+  /**
+   * Resize a field
+   */
+  resizeField(id: string, newLeft: number, newTop: number, newWidth: number, newHeight: number, useHistory: boolean = true): void {
+    const currentFields = this.fieldsSubject.value;
+    const field = currentFields.find(f => f.id === id);
+
+    if (!field) return;
+
+    const oldLeft = field.locations.left;
+    const oldTop = field.locations.top;
+    const oldWidth = field.locations.width;
+    const oldHeight = field.locations.height;
+
+    if (useHistory) {
+      const command = new ResizeFieldCommand(
+        id,
+        oldLeft,
+        oldTop,
+        oldWidth,
+        oldHeight,
+        newLeft,
+        newTop,
+        newWidth,
+        newHeight,
+        (fieldId, left, top, width, height) => this.resizeFieldInternal(fieldId, left, top, width, height)
+      );
+      this.historyService.executeCommand(command);
+    } else {
+      this.resizeFieldInternal(id, newLeft, newTop, newWidth, newHeight);
+    }
+  }
+
+  private resizeFieldInternal(id: string, left: number, top: number, width: number, height: number): void {
+    const currentFields = this.fieldsSubject.value;
+    const updatedFields = currentFields.map(field =>
+      field.id === id
+        ? { ...field, locations: { ...field.locations, left, top, width, height } }
+        : field
+    );
+    this.fieldsSubject.next(updatedFields);
   }
 
   getFields(): Field[] {

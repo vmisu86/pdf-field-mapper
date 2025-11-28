@@ -31,6 +31,21 @@
       Grid
     </button>
 
+    <button nz-button [nzType]="snapToGrid ? 'primary' : 'default'" (click)="snapToGrid = !snapToGrid">
+      <i nz-icon nzType="block"></i>
+      Snap
+    </button>
+
+    <nz-divider nzType="vertical"></nz-divider>
+
+    <button nz-button (click)="historyService.undo()" [disabled]="!canUndo" nz-tooltip="Undo (Ctrl+Z)">
+      <i nz-icon nzType="undo"></i>
+    </button>
+
+    <button nz-button (click)="historyService.redo()" [disabled]="!canRedo" nz-tooltip="Redo (Ctrl+Shift+Z)">
+      <i nz-icon nzType="redo"></i>
+    </button>
+
     <nz-divider nzType="vertical"></nz-divider>
 
     <nz-select [ngModel]="documentType" (ngModelChange)="changeDocumentType($event)" style="width: 140px">

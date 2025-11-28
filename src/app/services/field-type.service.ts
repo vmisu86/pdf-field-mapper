@@ -66,7 +66,6 @@ export class FieldTypeService {
   }
 
   getFieldTypeByKey(key: string): FieldTypeCombination | undefined {
-    console.log(key);
     return this.fieldTypeCombinations.find(ft =>
       `${ft.label}_${ft.inputType}_${ft.contentType}`.toLowerCase() === key
     );

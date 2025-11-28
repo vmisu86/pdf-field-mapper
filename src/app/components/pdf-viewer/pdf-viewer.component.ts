@@ -8,7 +8,20 @@ import { NzDividerModule } from 'ng-zorro-antd/divider';
 import { NzSelectModule } from 'ng-zorro-antd/select';
 import { NzSpaceModule } from 'ng-zorro-antd/space';
 import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
-import { NzModalService } from 'ng-zorro-antd/modal';
+import { NzModalModule, NzModalService } from 'ng-zorro-antd/modal';
+import { NzLayoutModule } from 'ng-zorro-antd/layout';
+import { NzCardModule } from 'ng-zorro-antd/card';
+import { NzAlertModule } from 'ng-zorro-antd/alert';
+import { NzBadgeModule } from 'ng-zorro-antd/badge';
+import { NzTagModule } from 'ng-zorro-antd/tag';
+import { NzListModule } from 'ng-zorro-antd/list';
+import { NzFormModule } from 'ng-zorro-antd/form';
+import { NzInputModule } from 'ng-zorro-antd/input';
+import { NzInputNumberModule } from 'ng-zorro-antd/input-number';
+import { NzSwitchModule } from 'ng-zorro-antd/switch';
+import { NzEmptyModule } from 'ng-zorro-antd/empty';
+import { NzCheckboxModule } from 'ng-zorro-antd/checkbox';
+import { NzMessageService } from 'ng-zorro-antd/message';
 import * as pdfjsLib from 'pdfjs-dist';
 
 import { PdfFieldService } from '../../services/pdf-field.service';
@@ -17,7 +30,7 @@ import { CoordinateConversionService } from '../../services/coordinate-conversio
 import { FieldInteractionService } from '../../services/field-interaction.service';
 import { CanvasRendererService } from '../../services/canvas-renderer.service';
 import { FieldTypeService } from '../../services/field-type.service';
-import { AdobeDocumentType, Field, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
+import { AdobeDocumentType, Field, FieldTypeCombination, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
 
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
   `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.31/pdf.worker.mjs`;
@@ -34,7 +47,20 @@ import { AdobeDocumentType, Field, FormFieldContentType, FormFieldInputType } fr
     NzDividerModule,
     NzSelectModule,
     NzSpaceModule,
-    NzToolTipModule
+    NzToolTipModule,
+    NzModalModule,
+    NzLayoutModule,
+    NzCardModule,
+    NzAlertModule,
+    NzBadgeModule,
+    NzTagModule,
+    NzListModule,
+    NzFormModule,
+    NzInputModule,
+    NzInputNumberModule,
+    NzSwitchModule,
+    NzEmptyModule,
+    NzCheckboxModule
   ],
   templateUrl: './pdf-viewer.component.html',
   styleUrls: ['./pdf-viewer.component.less']
@@ -69,6 +95,9 @@ export class PdfViewerComponent implements OnInit {
   selectedFieldType: any = 'TEXT_FIELD';
   recipientIndex = 1;
   documentType: AdobeDocumentType = AdobeDocumentType.TRANSIENT;
+  leftSidebarCollapsed = false;
+  rightSidebarCollapsed = false;
+  searchFieldType = '';
 
   // Field type configuration
   fieldTypeCombinations: any[] = [];
@@ -82,10 +111,11 @@ export class PdfViewerComponent implements OnInit {
     private pdfFieldService: PdfFieldService,
     public historyService: HistoryService,
     private modal: NzModalService,
+    private message: NzMessageService,
     private coordService: CoordinateConversionService,
     private interactionService: FieldInteractionService,
     private canvasRenderer: CanvasRendererService,
-    private fieldTypeService: FieldTypeService
+    public fieldTypeService: FieldTypeService
   ) {
     this.fieldTypeCombinations = this.fieldTypeService.getFieldTypeCombinations();
     this.fieldTypeGroups = this.fieldTypeService.getFieldTypeGroups();
@@ -521,7 +551,7 @@ export class PdfViewerComponent implements OnInit {
 
     this.pdfFieldService.addField(field);
     this.drawingStart = null;
-    this.isDrawing = false;
+    // Keep drawing mode active for continuous field creation
   }
 
   // ==================== Canvas Rendering ====================
@@ -656,5 +686,126 @@ export class PdfViewerComponent implements OnInit {
       nzMaskClosable: false,
       nzIconType: 'exclamation-circle'
     });
+  }
+
+  get fieldsOnCurrentPage(): Field[] {
+    return this.fields.filter(f => f.locations.pageNumber === this.currentPage);
+  }
+
+  selectFieldType(field: FieldTypeCombination): void {
+    this.selectedFieldType = `${field.label}_${field.inputType}_${field.contentType}`.toLowerCase();
+  }
+
+  deleteSelectedField(): void {
+    if (this.selectedField) {
+      this.pdfFieldService.deleteField(this.selectedField.id);
+      this.selectedField = null;
+      this.redrawOverlay();
+    }
+  }
+
+  // ==================== Import/Export/JSON ====================
+
+  exportJson(): void {
+    const fieldsData = {
+      fields: this.fields,
+      documentType: this.documentType,
+      totalPages: this.totalPages,
+      exportDate: new Date().toISOString()
+    };
+
+    const dataStr = JSON.stringify(fieldsData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `fieldforge-config-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    this.message.success('Configuration exported successfully!');
+  }
+
+  importJson(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = (event: any) => {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e: any) => {
+          try {
+            const config = JSON.parse(e.target.result);
+
+            if (config.fields && Array.isArray(config.fields)) {
+              // Clear existing fields
+              this.fields.forEach(f => this.pdfFieldService.deleteField(f.id));
+
+              // Import new fields
+              config.fields.forEach((field: Field) => {
+                this.pdfFieldService.addField(field);
+              });
+
+              if (config.documentType) {
+                this.documentType = config.documentType;
+              }
+
+              this.redrawOverlay();
+              this.message.success(`Imported ${config.fields.length} fields successfully!`);
+            } else {
+              this.message.error('Invalid configuration file format!');
+            }
+          } catch (error) {
+            this.message.error('Failed to parse JSON file!');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  }
+
+  showJson(): void {
+    const fieldsData = {
+      fields: this.fields,
+      documentType: this.documentType,
+      totalPages: this.totalPages,
+      currentPage: this.currentPage
+    };
+
+    const jsonString = JSON.stringify(fieldsData, null, 2);
+
+    this.modal.create({
+      nzTitle: 'Field Configuration JSON',
+      nzContent: `<pre style="max-height: 500px; overflow: auto; background: #f5f5f5; padding: 16px; border-radius: 4px;"><code>${this.escapeHtml(jsonString)}</code></pre>`,
+      nzWidth: 800,
+      nzFooter: [
+        {
+          label: 'Copy to Clipboard',
+          type: 'primary',
+          onClick: () => {
+            navigator.clipboard.writeText(jsonString).then(() => {
+              this.message.success('JSON copied to clipboard!');
+            });
+          }
+        },
+        {
+          label: 'Close',
+          onClick: () => true
+        }
+      ]
+    });
+  }
+
+  private escapeHtml(text: string): string {
+    const map: { [key: string]: string } = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
   }
 }

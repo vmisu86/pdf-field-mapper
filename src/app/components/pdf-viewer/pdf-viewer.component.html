@@ -1,63 +1,338 @@
-<div class="pdf-viewer-container">
-  <div class="toolbar">
-    <nz-upload [nzBeforeUpload]="beforeUpload" (nzChange)="onFileSelected($event)">
-      <button nz-button nzType="primary">
-        <i nz-icon nzType="upload"></i>
-        Upload PDF
-      </button>
-    </nz-upload>
+<nz-layout class="app-layout">
+  <!-- Top Header/Toolbar -->
+  <nz-header class="app-header">
+    <div class="header-content">
+      <!-- Logo/Title -->
+      <div class="app-title">
+        <i nz-icon nzType="file-pdf" nzTheme="twotone"></i>
+        <span>FieldForge</span>
+      </div>
 
-    <nz-button-group>
-      <button nz-button (click)="previousPage()" [disabled]="currentPage <= 1">
-        <i nz-icon nzType="left"></i>
-      </button>
-      <button nz-button disabled>
-        Page {{ currentPage }} / {{ totalPages }}
-      </button>
-      <button nz-button (click)="nextPage()" [disabled]="currentPage >= totalPages">
-        <i nz-icon nzType="right"></i>
-      </button>
-    </nz-button-group>
+      <!-- Main Actions -->
+      <div class="header-actions">
+        <!-- Sidebar Toggles -->
+        <button nz-button (click)="leftSidebarCollapsed = !leftSidebarCollapsed" nz-tooltip="Toggle Field Types Panel">
+          <i nz-icon [nzType]="leftSidebarCollapsed ? 'menu-unfold' : 'menu-fold'"></i>
+        </button>
 
-    <nz-divider nzType="vertical"></nz-divider>
+        <nz-divider nzType="vertical"></nz-divider>
 
-    <button nz-button [nzType]="isDrawing ? 'primary' : 'default'" (click)="toggleDrawing()">
-      <i nz-icon nzType="edit"></i>
-      {{ isDrawing ? 'Drawing Mode ON' : 'Drawing Mode OFF' }}
-    </button>
+        <nz-upload [nzBeforeUpload]="beforeUpload" (nzChange)="onFileSelected($event)">
+          <button nz-button nzType="primary">
+            <i nz-icon nzType="upload"></i>
+            Upload PDF
+          </button>
+        </nz-upload>
 
-    <button nz-button [nzType]="showGrid ? 'primary' : 'default'" (click)="showGrid = !showGrid; redrawOverlay()">
-      <i nz-icon nzType="table"></i>
-      Grid
-    </button>
+        <nz-divider nzType="vertical"></nz-divider>
 
-    <nz-divider nzType="vertical"></nz-divider>
+        <!-- Import/Export/JSON Actions -->
+        <button nz-button (click)="importJson()" nz-tooltip="Import Field Configuration">
+          <i nz-icon nzType="download"></i>
+          Import
+        </button>
 
-    <nz-select [ngModel]="documentType" (ngModelChange)="changeDocumentType($event)" style="width: 140px">
-      <nz-option [nzValue]="'TRANSIENT'" nzLabel="Transient"></nz-option>
-      <nz-option [nzValue]="'LIBRARY'" nzLabel="Library"></nz-option>
-    </nz-select>
+        <button nz-button (click)="exportJson()" nz-tooltip="Export Field Configuration">
+          <i nz-icon nzType="upload"></i>
+          Export
+        </button>
 
-    <nz-select [(ngModel)]="recipientIndex" [disabled]="!isDrawing" style="width: 140px">
-      <nz-option [nzValue]="1" nzLabel="Signer"></nz-option>
-    </nz-select>
+        <button nz-button (click)="showJson()" nz-tooltip="View JSON Configuration">
+          <i nz-icon nzType="code"></i>
+          View JSON
+        </button>
 
-    <nz-select [(ngModel)]="selectedFieldType" [disabled]="!isDrawing" style="width: 200px">
-      <nz-option-group *ngFor="let group of fieldTypeGroups" [nzLabel]="group.label">
-        <nz-option *ngFor="let field of group.items"
-          [nzValue]="(field.label + '_' + field.inputType + '_' + field.contentType).toLowerCase()"
-          [nzLabel]="field.label" nzCustomContent>
-          <i nz-icon [nzType]="field.icon" [style.color]="field.color"></i>
-          {{ field.label }}
-        </nz-option>
-      </nz-option-group>
-    </nz-select>
-  </div>
+        <nz-divider nzType="vertical"></nz-divider>
 
-  <div class="pdf-canvas-container" *ngIf="pdfDocument">
-    <canvas #pdfCanvas class="pdf-canvas"></canvas>
-    <canvas #drawingCanvas class="drawing-canvas" [class.drawing-mode]="isDrawing" (mousedown)="onMouseDown($event)"
-      (mousemove)="onMouseMove($event)" (mouseup)="onMouseUp($event)">
-    </canvas>
-  </div>
-</div>
+        <!-- Page Navigation -->
+        <nz-space>
+          <button *nzSpaceItem nz-button (click)="previousPage()" [disabled]="currentPage <= 1">
+            <i nz-icon nzType="left"></i>
+          </button>
+          <button *nzSpaceItem nz-button disabled>
+            Page {{ currentPage }} / {{ totalPages }}
+          </button>
+          <button *nzSpaceItem nz-button (click)="nextPage()" [disabled]="currentPage >= totalPages">
+            <i nz-icon nzType="right"></i>
+          </button>
+        </nz-space>
+
+        <nz-divider nzType="vertical"></nz-divider>
+
+        <!-- Grid & Snap -->
+        <button nz-button [nzType]="showGrid ? 'primary' : 'default'" (click)="showGrid = !showGrid; redrawOverlay()" nz-tooltip="Toggle Grid">
+          <i nz-icon nzType="table"></i>
+        </button>
+
+        <button nz-button [nzType]="snapToGrid ? 'primary' : 'default'" (click)="snapToGrid = !snapToGrid" nz-tooltip="Snap to Grid">
+          <i nz-icon nzType="block"></i>
+        </button>
+
+        <nz-divider nzType="vertical"></nz-divider>
+
+        <!-- Undo/Redo -->
+        <button nz-button (click)="historyService.undo()" [disabled]="!canUndo" nz-tooltip="Undo (Ctrl+Z)">
+          <i nz-icon nzType="undo"></i>
+        </button>
+
+        <button nz-button (click)="historyService.redo()" [disabled]="!canRedo" nz-tooltip="Redo (Ctrl+Shift+Z)">
+          <i nz-icon nzType="redo"></i>
+        </button>
+
+        <nz-divider nzType="vertical"></nz-divider>
+
+        <!-- Document Type -->
+        <nz-select [ngModel]="documentType" (ngModelChange)="changeDocumentType($event)" style="width: 140px" nz-tooltip="Coordinate System">
+          <nz-option [nzValue]="'TRANSIENT'" nzLabel="Transient"></nz-option>
+          <nz-option [nzValue]="'LIBRARY'" nzLabel="Library"></nz-option>
+        </nz-select>
+
+        <nz-divider nzType="vertical"></nz-divider>
+
+        <button nz-button (click)="rightSidebarCollapsed = !rightSidebarCollapsed" nz-tooltip="Toggle Properties Panel">
+          <i nz-icon [nzType]="rightSidebarCollapsed ? 'menu-fold' : 'menu-unfold'"></i>
+        </button>
+      </div>
+    </div>
+  </nz-header>
+
+  <!-- Field Type Indicator Banner -->
+  <nz-alert
+    *ngIf="selectedFieldType && getSelectedFieldType()"
+    nzType="info"
+    nzBanner
+    [nzMessage]="'✏️ Selected: ' + getSelectedFieldType()?.label + ' - Click on empty canvas to draw, click on fields to select'"
+    nzCloseable
+    (nzOnClose)="selectedFieldType = ''">
+  </nz-alert>
+
+  <nz-layout>
+    <!-- Left Sidebar - Field Types & List -->
+    <nz-sider
+      *ngIf="!leftSidebarCollapsed"
+      [nzWidth]="280"
+      nzTheme="light"
+      class="left-sidebar">
+      <div class="sidebar-content">
+        <div class="sidebar-header">
+          <h3>Field Types</h3>
+        </div>
+
+        <!-- Search Field Types -->
+        <nz-input-group [nzPrefix]="prefixIconSearch" style="margin-bottom: 16px;">
+          <input type="text" nz-input placeholder="Search field types..." [(ngModel)]="searchFieldType" />
+        </nz-input-group>
+        <ng-template #prefixIconSearch>
+          <i nz-icon nzType="search"></i>
+        </ng-template>
+
+        <!-- Field Type Cards -->
+        <div class="field-types-container">
+          <div *ngFor="let group of fieldTypeGroups" class="field-type-group">
+            <div class="group-label">{{ group.label }}</div>
+            <div class="field-type-grid">
+              <nz-card
+                *ngFor="let field of group.items"
+                class="field-type-card"
+                [class.selected]="selectedFieldType === (field.label + '_' + field.inputType + '_' + field.contentType).toLowerCase()"
+                (click)="selectFieldType(field)"
+                [nzBodyStyle]="{'padding': '12px'}"
+                nzHoverable>
+                <div class="field-type-content">
+                  <i nz-icon [nzType]="field.icon" [style.color]="field.color" [style.fontSize]="'24px'"></i>
+                  <div class="field-type-info">
+                    <div class="field-type-label">{{ field.label }}</div>
+                  </div>
+                </div>
+              </nz-card>
+            </div>
+          </div>
+        </div>
+
+        <!-- Field List -->
+        <div class="fields-list-container" *ngIf="fields.length > 0" style="margin-top: 24px;">
+          <div class="group-label">Fields on Page {{ currentPage }}</div>
+          <nz-list [nzDataSource]="fieldsOnCurrentPage" nzSize="small">
+            <nz-list-item
+              *ngFor="let field of fieldsOnCurrentPage"
+              [class.selected]="selectedField?.id === field.id"
+              (click)="selectedField = field; redrawOverlay()"
+              style="cursor: pointer;">
+              <div class="field-list-item">
+                <i nz-icon [nzType]="fieldTypeService.getFieldIcon(field)" [style.color]="fieldTypeService.getFieldColor(field)"></i>
+                <span class="field-name">{{ field.name }}</span>
+                <nz-tag *ngIf="field.required" nzColor="error">Required</nz-tag>
+              </div>
+            </nz-list-item>
+          </nz-list>
+        </div>
+      </div>
+    </nz-sider>
+
+    <!-- Main Content Area -->
+    <nz-layout>
+      <nz-content class="main-content">
+        <!-- Empty State when no PDF -->
+        <div *ngIf="!pdfDocument" class="empty-state">
+          <nz-empty
+            [nzNotFoundImage]="'https://gw.alipayobjects.com/zos/antfincdn/ZHrcdLPrvN/empty.svg'"
+            [nzNotFoundContent]="contentTpl">
+            <ng-template #contentTpl>
+              <h2>Welcome to FieldForge</h2>
+              <p>Upload a PDF document to start adding form fields</p>
+              <nz-upload [nzBeforeUpload]="beforeUpload" (nzChange)="onFileSelected($event)">
+                <button nz-button nzType="primary" nzSize="large">
+                  <i nz-icon nzType="upload"></i>
+                  Upload PDF Document
+                </button>
+              </nz-upload>
+            </ng-template>
+          </nz-empty>
+        </div>
+
+        <!-- PDF Canvas -->
+        <div class="pdf-canvas-container" *ngIf="pdfDocument">
+          <canvas #pdfCanvas class="pdf-canvas"></canvas>
+          <canvas
+            #drawingCanvas
+            class="drawing-canvas"
+            [class.drawing-mode]="selectedFieldType && getSelectedFieldType()"
+            (mousedown)="onMouseDown($event)"
+            (mousemove)="onMouseMove($event)"
+            (mouseup)="onMouseUp($event)">
+          </canvas>
+        </div>
+      </nz-content>
+    </nz-layout>
+
+    <!-- Right Sidebar - Properties -->
+    <nz-sider
+      *ngIf="!rightSidebarCollapsed"
+      [nzWidth]="320"
+      nzTheme="light"
+      class="right-sidebar">
+      <div class="sidebar-content">
+        <div class="sidebar-header">
+          <h3>Properties</h3>
+        </div>
+
+        <!-- Selected Field Properties -->
+        <div *ngIf="selectedField" class="properties-panel">
+          <nz-card nzTitle="Field Details" [nzBodyStyle]="{'padding': '16px'}">
+            <form nz-form nzLayout="vertical">
+              <nz-form-item>
+                <nz-form-label>Field Name</nz-form-label>
+                <nz-form-control>
+                  <input nz-input [(ngModel)]="selectedField.name" name="fieldName" placeholder="Enter field name" />
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-label>Type</nz-form-label>
+                <nz-form-control>
+                  <nz-tag [nzColor]="fieldTypeService.getFieldColor(selectedField)">
+                    <i nz-icon [nzType]="fieldTypeService.getFieldIcon(selectedField)"></i>
+                    {{ selectedField.inputType }}
+                  </nz-tag>
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-label>Position</nz-form-label>
+                <nz-form-control>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <nz-input-group nzAddOnBefore="X">
+                      <nz-input-number
+                        [(ngModel)]="selectedField.locations.left"
+                        name="left"
+                        [nzMin]="0"
+                        [nzStep]="1"
+                        style="width: 100%;">
+                      </nz-input-number>
+                    </nz-input-group>
+                    <nz-input-group nzAddOnBefore="Y">
+                      <nz-input-number
+                        [(ngModel)]="selectedField.locations.top"
+                        name="top"
+                        [nzMin]="0"
+                        [nzStep]="1"
+                        style="width: 100%;">
+                      </nz-input-number>
+                    </nz-input-group>
+                  </div>
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-label>Size</nz-form-label>
+                <nz-form-control>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <nz-input-group nzAddOnBefore="W">
+                      <nz-input-number
+                        [(ngModel)]="selectedField.locations.width"
+                        name="width"
+                        [nzMin]="20"
+                        [nzStep]="1"
+                        style="width: 100%;">
+                      </nz-input-number>
+                    </nz-input-group>
+                    <nz-input-group nzAddOnBefore="H">
+                      <nz-input-number
+                        [(ngModel)]="selectedField.locations.height"
+                        name="height"
+                        [nzMin]="20"
+                        [nzStep]="1"
+                        style="width: 100%;">
+                      </nz-input-number>
+                    </nz-input-group>
+                  </div>
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-label>Recipient</nz-form-label>
+                <nz-form-control>
+                  <nz-select [(ngModel)]="selectedField.recipientIndex" name="recipient" style="width: 100%;">
+                    <nz-option [nzValue]="1" nzLabel="Signer 1"></nz-option>
+                  </nz-select>
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-control>
+                  <label nz-checkbox [(ngModel)]="selectedField.required" name="required">Required Field</label>
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-control>
+                  <label nz-checkbox [(ngModel)]="selectedField.readOnly" name="readOnly">Read Only</label>
+                </nz-form-control>
+              </nz-form-item>
+
+              <nz-form-item>
+                <nz-form-control>
+                  <button nz-button nzType="primary" nzDanger nzBlock (click)="deleteSelectedField()">
+                    <i nz-icon nzType="delete"></i>
+                    Delete Field
+                  </button>
+                </nz-form-control>
+              </nz-form-item>
+            </form>
+          </nz-card>
+        </div>
+
+        <!-- No Selection State -->
+        <div *ngIf="!selectedField" class="no-selection">
+          <nz-empty
+            nzNotFoundContent="No field selected"
+            [nzNotFoundImage]="'simple'">
+            <ng-template #desc>
+              <p>Select a field to view and edit its properties</p>
+            </ng-template>
+          </nz-empty>
+        </div>
+      </div>
+    </nz-sider>
+  </nz-layout>
+</nz-layout>

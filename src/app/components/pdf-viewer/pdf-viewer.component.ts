@@ -6,13 +6,32 @@ import { NzUploadModule } from 'ng-zorro-antd/upload';
 import { NzIconModule } from 'ng-zorro-antd/icon';
 import { NzDividerModule } from 'ng-zorro-antd/divider';
 import { NzSelectModule } from 'ng-zorro-antd/select';
-import { PdfFieldService } from '../../services/pdf-field.service';
-import { AdobeDocumentType, Field, FieldTypeCombination, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
-import * as pdfjsLib from 'pdfjs-dist';
+import { NzSpaceModule } from 'ng-zorro-antd/space';
+import { NzToolTipModule } from 'ng-zorro-antd/tooltip';
+import { NzModalModule, NzModalService } from 'ng-zorro-antd/modal';
+import { NzLayoutModule } from 'ng-zorro-antd/layout';
+import { NzCardModule } from 'ng-zorro-antd/card';
+import { NzAlertModule } from 'ng-zorro-antd/alert';
+import { NzBadgeModule } from 'ng-zorro-antd/badge';
+import { NzTagModule } from 'ng-zorro-antd/tag';
+import { NzListModule } from 'ng-zorro-antd/list';
+import { NzFormModule } from 'ng-zorro-antd/form';
+import { NzInputModule } from 'ng-zorro-antd/input';
+import { NzInputNumberModule } from 'ng-zorro-antd/input-number';
+import { NzSwitchModule } from 'ng-zorro-antd/switch';
+import { NzEmptyModule } from 'ng-zorro-antd/empty';
+import { NzCheckboxModule } from 'ng-zorro-antd/checkbox';
 import { NzMessageService } from 'ng-zorro-antd/message';
-import { NzModalService } from 'ng-zorro-antd/modal';
+import * as pdfjsLib from 'pdfjs-dist';
 
-// Configure PDF.js worker with CDN
+import { PdfFieldService } from '../../services/pdf-field.service';
+import { HistoryService } from '../../services/history.service';
+import { CoordinateConversionService } from '../../services/coordinate-conversion.service';
+import { FieldInteractionService } from '../../services/field-interaction.service';
+import { CanvasRendererService } from '../../services/canvas-renderer.service';
+import { FieldTypeService } from '../../services/field-type.service';
+import { AdobeDocumentType, Field, FieldTypeCombination, FormFieldContentType, FormFieldInputType } from '../../models/field.model';
+
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
   `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/5.3.31/pdf.worker.mjs`;
 
@@ -26,7 +45,22 @@ import { NzModalService } from 'ng-zorro-antd/modal';
     NzUploadModule,
     NzIconModule,
     NzDividerModule,
-    NzSelectModule
+    NzSelectModule,
+    NzSpaceModule,
+    NzToolTipModule,
+    NzModalModule,
+    NzLayoutModule,
+    NzCardModule,
+    NzAlertModule,
+    NzBadgeModule,
+    NzTagModule,
+    NzListModule,
+    NzFormModule,
+    NzInputModule,
+    NzInputNumberModule,
+    NzSwitchModule,
+    NzEmptyModule,
+    NzCheckboxModule
   ],
   templateUrl: './pdf-viewer.component.html',
   styleUrls: ['./pdf-viewer.component.less']
@@ -35,77 +69,83 @@ export class PdfViewerComponent implements OnInit {
   @ViewChild('pdfCanvas', { static: false }) pdfCanvas!: ElementRef<HTMLCanvasElement>;
   @ViewChild('drawingCanvas', { static: false }) drawingCanvas!: ElementRef<HTMLCanvasElement>;
 
+  // PDF state
   pdfDocument: any = null;
   currentPage = 1;
   totalPages = 0;
   scale = 1.5;
+
+  // Drawing state
   isDrawing = false;
   showGrid = false;
   drawingStart: { x: number; y: number } | null = null;
 
+  // Field state
+  selectedField: Field | null = null;
+  hoveredField: Field | null = null;
+  fields: Field[] = [];
+
+  // Interaction settings
+  snapToGrid = false;
+  gridSize = 10;
+
+  // UI state
+  canUndo = false;
+  canRedo = false;
+  selectedFieldType: any = 'TEXT_FIELD';
+  recipientIndex = 1;
+  documentType: AdobeDocumentType = AdobeDocumentType.TRANSIENT;
+  leftSidebarCollapsed = false;
+  rightSidebarCollapsed = false;
+  searchFieldType = '';
+
+  // Field type configuration
+  fieldTypeCombinations: any[] = [];
+  fieldTypeGroups: any[] = [];
+  FormFieldInputType = FormFieldInputType;
+
   private renderTask: any = null;
   private isRendering = false;
 
-  fieldType: FormFieldInputType = FormFieldInputType.TEXT_FIELD;
-  selectedFieldType: string = 'text_data';
-  recipientIndex = 1;
-  documentType: AdobeDocumentType = AdobeDocumentType.TRANSIENT;
+  constructor(
+    private pdfFieldService: PdfFieldService,
+    public historyService: HistoryService,
+    private modal: NzModalService,
+    private message: NzMessageService,
+    private coordService: CoordinateConversionService,
+    private interactionService: FieldInteractionService,
+    private canvasRenderer: CanvasRendererService,
+    public fieldTypeService: FieldTypeService
+  ) {
+    this.fieldTypeCombinations = this.fieldTypeService.getFieldTypeCombinations();
+    this.fieldTypeGroups = this.fieldTypeService.getFieldTypeGroups();
 
-  fields: Field[] = [];
-
-  fieldTypeCombinations: FieldTypeCombination[] = [
-    // Text fields
-    { label: 'Text Field', inputType: FormFieldInputType.TEXT_FIELD, contentType: FormFieldContentType.DATA, icon: 'font-size', color: '#1890ff', validation: '', validationData: '' },
-    { label: 'Multiline Text', inputType: FormFieldInputType.MULTILINE, contentType: FormFieldContentType.DATA, icon: 'file-text', color: '#1890ff', validation: '', validationData: '' },
-    { label: 'Signer Name', inputType: FormFieldInputType.TEXT_FIELD, contentType: FormFieldContentType.SIGNER_NAME, icon: 'user', color: '#13c2c2', validation: '', validationData: '' },
-    { label: 'Signer Email', inputType: FormFieldInputType.TEXT_FIELD, contentType: FormFieldContentType.SIGNER_EMAIL, icon: 'mail', color: '#13c2c2', validation: '', validationData: '' },
-    // { label: 'Signer Title', inputType: FormFieldInputType.TEXT_FIELD, contentType: FormFieldContentType.SIGNER_TITLE, icon: 'idcard', color: '#13c2c2', validation:'',validationData:''  },
-    // { label: 'Signer Company', inputType: FormFieldInputType.TEXT_FIELD, contentType: FormFieldContentType.SIGNER_COMPANY, icon: 'bank', color: '#13c2c2', validation:'',validationData:''  },
-
-    // Signature fields
-    { label: 'Signature', inputType: FormFieldInputType.SIGNATURE, contentType: FormFieldContentType.SIGNATURE, icon: 'edit', color: '#52c41a', validation: '', validationData: '' },
-    { label: 'Initials', inputType: FormFieldInputType.SIGNATURE, contentType: FormFieldContentType.SIGNER_INITIALS, icon: 'highlight', color: '#52c41a', validation: '', validationData: '' },
-
-    // Date fields
-    { label: 'Date Field', inputType: FormFieldInputType.DATE, contentType: FormFieldContentType.DATA, icon: 'calendar', color: '#fa8c16', validation: 'DATE_CUSTOM', validationData: 'yyyy-MM-dd' },
-    { label: 'Date-CUSTOM Field', inputType: FormFieldInputType.DATE, contentType: FormFieldContentType.DATA, icon: 'calendar', color: '#fa8c16', validation: 'DATE', validationData: '' },
-    { label: 'Signing Date', inputType: FormFieldInputType.DATE, contentType: FormFieldContentType.SIGNATURE_DATE, icon: 'calendar', color: '#fa8c16', validation: '', validationData: '', readOnly: true },
-
-    // Other fields
-    { label: 'Checkbox', inputType: FormFieldInputType.CHECKBOX, contentType: FormFieldContentType.DATA, icon: 'check-square', color: '#722ed1', validation: '', validationData: '' },
-    { label: 'Radio Button', inputType: FormFieldInputType.RADIO, contentType: FormFieldContentType.DATA, icon: 'check-circle', color: '#722ed1', validation: '', validationData: '' },
-    // { label: 'Dropdown', inputType: FormFieldInputType.DROP_DOWN, contentType: FormFieldContentType.DATA, icon: 'down-square', color: '#13c2c2', validation:'',validationData:'' },
-    // { label: 'Hyperlink', inputType: FormFieldInputType.HYPERLINK, contentType: FormFieldContentType.HYPERLINK, icon: 'link', color: '#eb2f96', validation:'',validationData:'' },
-    // { label: 'Image', inputType: FormFieldInputType.IMAGE, contentType: FormFieldContentType.IMAGE, icon: 'picture', color: '#faad14', validation:'',validationData:'' },
-    // { label: 'QR Code', inputType: FormFieldInputType.IMAGE, contentType: FormFieldContentType.QR_CODE, icon: 'qrcode', color: '#faad14', validation:'',validationData:'' }
-  ];
-
-  fieldTypeGroups = [
-    {
-      label: 'Text Fields',
-      items: this.fieldTypeCombinations.filter(f => f.inputType === FormFieldInputType.TEXT_FIELD || f.inputType === FormFieldInputType.MULTILINE)
-    },
-    {
-      label: 'Signature Fields',
-      items: this.fieldTypeCombinations.filter(f => f.inputType === FormFieldInputType.SIGNATURE)
-    },
-    {
-      label: 'Date Fields',
-      items: this.fieldTypeCombinations.filter(f => f.inputType === FormFieldInputType.DATE)
-    },
-    {
-      label: 'Other Fields',
-      items: this.fieldTypeCombinations.filter(f =>
-        ![FormFieldInputType.TEXT_FIELD, FormFieldInputType.MULTILINE, FormFieldInputType.SIGNATURE, FormFieldInputType.DATE].includes(f.inputType)
-      )
+    // Set default selected field type to the first item
+    const defaultField = this.fieldTypeGroups[0]?.items[0];
+    if (defaultField) {
+      this.selectedFieldType = `${defaultField.label}_${defaultField.inputType}_${defaultField.contentType}`.toLowerCase();
     }
-  ];
-
-  FormFieldInputType = FormFieldInputType;
-
-  constructor(private pdfFieldService: PdfFieldService, private modal: NzModalService) { }
+  }
 
   ngOnInit(): void {
+    this.initializeSubscriptions();
+  }
+
+  @HostListener('window:keydown', ['$event'])
+  onKeyDown(event: KeyboardEvent): void {
+    this.handleKeyboardShortcuts(event);
+  }
+
+  @HostListener('window:resize')
+  onResize(): void {
+    if (this.pdfDocument && this.currentPage) {
+      this.renderPage(this.currentPage);
+    }
+  }
+
+  // ==================== Initialization ====================
+
+  private initializeSubscriptions(): void {
     this.pdfFieldService.pdfDocument$.subscribe(async (pdfDoc) => {
       if (pdfDoc) {
         this.pdfDocument = pdfDoc;
@@ -119,7 +159,53 @@ export class PdfViewerComponent implements OnInit {
       this.fields = fields;
       this.redrawOverlay();
     });
+
+    this.historyService.canUndo$.subscribe(canUndo => this.canUndo = canUndo);
+    this.historyService.canRedo$.subscribe(canRedo => this.canRedo = canRedo);
   }
+
+  // ==================== Keyboard Shortcuts ====================
+
+  private handleKeyboardShortcuts(event: KeyboardEvent): void {
+    if (event.ctrlKey && event.key === 'z' && !event.shiftKey) {
+      event.preventDefault();
+      this.historyService.undo();
+      this.selectedField = null;
+      this.redrawOverlay();
+      return;
+    }
+
+    if ((event.ctrlKey && event.shiftKey && event.key === 'Z') || (event.ctrlKey && event.key === 'y')) {
+      event.preventDefault();
+      this.historyService.redo();
+      this.selectedField = null;
+      this.redrawOverlay();
+      return;
+    }
+
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      if (this.selectedField && !this.isDrawing) {
+        event.preventDefault();
+        this.pdfFieldService.deleteField(this.selectedField.id);
+        this.selectedField = null;
+        this.redrawOverlay();
+      }
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      if (this.interactionService.getState().isDragging || this.interactionService.getState().isResizing) {
+        this.interactionService.cancelOperation();
+        this.redrawOverlay();
+      } else if (this.selectedField) {
+        this.selectedField = null;
+        this.redrawOverlay();
+      }
+      return;
+    }
+  }
+
+  // ==================== PDF Loading & Rendering ====================
 
   beforeUpload = (file: any) => {
     const nativeFile: File = file.originFileObj || file;
@@ -142,7 +228,6 @@ export class PdfViewerComponent implements OnInit {
     }
   }
 
-
   async loadPdf(arrayBuffer: ArrayBuffer): Promise<void> {
     const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
     this.pdfDocument = await loadingTask.promise;
@@ -162,13 +247,12 @@ export class PdfViewerComponent implements OnInit {
       try {
         await this.renderTask.cancel();
       } catch (error) {
+        // Silently ignore cancellation errors
       }
       this.renderTask = null;
     }
 
-    if (this.isRendering) {
-      return;
-    }
+    if (this.isRendering) return;
 
     try {
       this.isRendering = true;
@@ -179,7 +263,7 @@ export class PdfViewerComponent implements OnInit {
       const canvas = this.pdfCanvas.nativeElement;
       const context = canvas.getContext('2d')!;
 
-      context.clearRect(0, 0, canvas.width, canvas.height);
+      this.canvasRenderer.clearCanvas(canvas);
 
       canvas.height = viewport.height;
       canvas.width = viewport.width;
@@ -226,96 +310,233 @@ export class PdfViewerComponent implements OnInit {
     }
   }
 
-  onMouseDown(event: MouseEvent): void {
-    if (!this.isDrawing) return;
+  // ==================== Mouse Event Handlers ====================
 
-    const rect = this.drawingCanvas.nativeElement.getBoundingClientRect();
-    this.drawingStart = {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top
-    };
+  onMouseDown(event: MouseEvent): void {
+    const coords = this.coordService.getCanvasCoordinates(event, this.drawingCanvas.nativeElement);
+    const viewport = this.getCurrentViewport();
+    if (!viewport) return;
+
+    // First, check if clicking on a resize handle of the selected field
+    if (this.selectedField) {
+      const handle = this.interactionService.getResizeHandleAtPoint(
+        coords.x,
+        coords.y,
+        this.selectedField,
+        viewport,
+        this.documentType
+      );
+
+      if (handle) {
+        this.interactionService.startResize(this.selectedField, handle, coords.x, coords.y);
+        return;
+      }
+    }
+
+    // Second, check if clicking on an existing field
+    const fieldAtPoint = this.getFieldAtPoint(coords.x, coords.y);
+
+    if (fieldAtPoint) {
+      // Clicking on a field - select it and allow dragging
+      if (this.selectedField?.id !== fieldAtPoint.id) {
+        this.selectedField = fieldAtPoint;
+        this.redrawOverlay();
+      }
+      this.interactionService.startDrag(fieldAtPoint, coords.x, coords.y);
+    } else {
+      // Clicking on empty canvas - start drawing if a field type is selected
+      if (this.selectedFieldType && this.getSelectedFieldType()) {
+        this.drawingStart = coords;
+        this.isDrawing = true;
+      }
+      this.selectedField = null;
+      this.redrawOverlay();
+    }
   }
 
   onMouseMove(event: MouseEvent): void {
-    if (!this.isDrawing || !this.drawingStart) return;
+    const coords = this.coordService.getCanvasCoordinates(event, this.drawingCanvas.nativeElement);
+    const viewport = this.getCurrentViewport();
+    if (!viewport) return;
 
-    const rect = this.drawingCanvas.nativeElement.getBoundingClientRect();
-    const currentX = event.clientX - rect.left;
-    const currentY = event.clientY - rect.top;
+    const state = this.interactionService.getState();
 
-    const ctx = this.drawingCanvas.nativeElement.getContext('2d')!;
-    this.redrawOverlay();
+    if (state.isDragging && this.selectedField) {
+      this.handleDragMove(coords, viewport);
+      return;
+    }
 
-    ctx.strokeStyle = '#1890ff';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.strokeRect(
-      this.drawingStart.x,
-      this.drawingStart.y,
-      currentX - this.drawingStart.x,
-      currentY - this.drawingStart.y
+    if (state.isResizing && this.selectedField) {
+      this.handleResizeMove(coords, viewport);
+      return;
+    }
+
+    if (this.isDrawing && this.drawingStart) {
+      this.handleDrawingMove(coords, viewport);
+      return;
+    }
+
+    this.updateHoverState(coords, viewport);
+    this.updateCursor(coords.x, coords.y, viewport);
+  }
+
+  onMouseUp(event: MouseEvent): void {
+    const coords = this.coordService.getCanvasCoordinates(event, this.drawingCanvas.nativeElement);
+    const state = this.interactionService.getState();
+
+    if (state.isDragging && this.selectedField) {
+      this.completeDragOperation();
+      this.updateCursorAfterOperation(coords.x, coords.y);
+      return;
+    }
+
+    if (state.isResizing && this.selectedField) {
+      this.completeResizeOperation();
+      this.updateCursorAfterOperation(coords.x, coords.y);
+      return;
+    }
+
+    if (this.isDrawing && this.drawingStart) {
+      this.completeFieldCreation(coords);
+      this.isDrawing = false; // Reset drawing state after field creation
+    }
+  }
+
+  // ==================== Interaction Handlers ====================
+
+  private handleDragMove(coords: { x: number; y: number }, viewport: any): void {
+    const newPosition = this.interactionService.calculateDragPosition(
+      coords.x,
+      coords.y,
+      viewport,
+      this.documentType,
+      this.snapToGrid,
+      this.gridSize
     );
 
-    let viewport: any = null;
-    this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
+    if (newPosition && this.selectedField) {
+      this.pdfFieldService.moveField(this.selectedField.id, newPosition.left, newPosition.top, false);
+    }
+  }
 
-    if (viewport) {
-      const pixelLeft = Math.min(this.drawingStart.x, currentX);
-      const pixelTop = Math.min(this.drawingStart.y, currentY);
-      const pixelWidth = Math.abs(currentX - this.drawingStart.x);
-      const pixelHeight = Math.abs(currentY - this.drawingStart.y);
+  private handleResizeMove(coords: { x: number; y: number }, viewport: any): void {
+    const newBounds = this.interactionService.calculateResizeBounds(
+      coords.x,
+      coords.y,
+      viewport,
+      this.documentType,
+      this.snapToGrid,
+      this.gridSize
+    );
 
-      const pointsLeft = this.pdfFieldService.pixelsToPoints(pixelLeft, viewport.scale);
-      const pointsTop = this.pdfFieldService.convertYCoordinate(pixelTop, pixelHeight, viewport, this.documentType);
-      const pointsWidth = this.pdfFieldService.pixelsToPoints(pixelWidth, viewport.scale);
-      const pointsHeight = this.pdfFieldService.pixelsToPoints(pixelHeight, viewport.scale);
-
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#000000';
-      ctx.font = '12px Arial';
-      ctx.fillText(
-        `L: ${pointsLeft.toFixed(1)}, T: ${pointsTop.toFixed(1)}, W: ${pointsWidth.toFixed(1)}, H: ${pointsHeight.toFixed(1)}`,
-        pixelLeft,
-        pixelTop - 5
+    if (newBounds && this.selectedField) {
+      this.pdfFieldService.resizeField(
+        this.selectedField.id,
+        newBounds.left,
+        newBounds.top,
+        newBounds.width,
+        newBounds.height,
+        false
       );
     }
   }
 
-  onMouseUp(event: MouseEvent): void {
-    if (!this.isDrawing || !this.drawingStart) return;
+  private handleDrawingMove(coords: { x: number; y: number }, viewport: any): void {
+    if (!this.drawingStart) return;
 
-    const rect = this.drawingCanvas.nativeElement.getBoundingClientRect();
-    const endX = event.clientX - rect.left;
-    const endY = event.clientY - rect.top;
+    const ctx = this.drawingCanvas.nativeElement.getContext('2d')!;
+    this.redrawOverlay();
+
+    this.canvasRenderer.drawFieldPreview(
+      ctx,
+      this.drawingStart.x,
+      this.drawingStart.y,
+      coords.x,
+      coords.y,
+      viewport,
+      this.documentType
+    );
+  }
+
+  private completeDragOperation(): void {
+    const result = this.interactionService.completeDrag();
+    if (!result || !this.selectedField) return;
+
+    const fieldId = this.selectedField.id;
+    const currentField = this.fields.find(f => f.id === fieldId);
+
+    if (currentField) {
+      if (currentField.locations.left !== result.startPos.left ||
+        currentField.locations.top !== result.startPos.top) {
+        this.pdfFieldService.moveField(
+          currentField.id,
+          currentField.locations.left,
+          currentField.locations.top,
+          true
+        );
+      }
+    }
+
+    this.selectedField = this.fields.find(f => f.id === fieldId) || null;
+    this.redrawOverlay();
+  }
+
+  private completeResizeOperation(): void {
+    const result = this.interactionService.completeResize();
+    if (!result || !this.selectedField) return;
+
+    const fieldId = this.selectedField.id;
+    const currentField = this.fields.find(f => f.id === fieldId);
+
+    if (currentField) {
+      const bounds = result.startBounds;
+      if (currentField.locations.left !== bounds.left ||
+        currentField.locations.top !== bounds.top ||
+        currentField.locations.width !== bounds.width ||
+        currentField.locations.height !== bounds.height) {
+        this.pdfFieldService.resizeField(
+          currentField.id,
+          currentField.locations.left,
+          currentField.locations.top,
+          currentField.locations.width,
+          currentField.locations.height,
+          true
+        );
+      }
+    }
+
+    this.selectedField = this.fields.find(f => f.id === fieldId) || null;
+    this.redrawOverlay();
+  }
+
+  private completeFieldCreation(coords: { x: number; y: number }): void {
+    if (!this.drawingStart) return;
+
+    const viewport = this.getCurrentViewport();
+    if (!viewport) return;
 
     const selectedType = this.getSelectedFieldType();
     if (!selectedType) return;
 
-    const fieldCount = this.fields.filter(f =>
-      f.inputType === selectedType.inputType &&
-      f.contentType === selectedType.contentType
-    ).length + 1;
-    let viewport: any = null;
-    this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
+    const pixelLeft = Math.min(this.drawingStart.x, coords.x);
+    const pixelTop = Math.min(this.drawingStart.y, coords.y);
+    const pixelWidth = Math.abs(coords.x - this.drawingStart.x);
+    const pixelHeight = Math.abs(coords.y - this.drawingStart.y);
 
-    if (!viewport) return;
-
-    const pixelLeft = Math.min(this.drawingStart.x, endX);
-    const pixelTop = Math.min(this.drawingStart.y, endY);
-    const pixelWidth = Math.abs(endX - this.drawingStart.x);
-    const pixelHeight = Math.abs(endY - this.drawingStart.y);
-
-    const pointsLeft = this.pdfFieldService.pixelsToPoints(pixelLeft, viewport.scale);
-    const pointsWidth = this.pdfFieldService.pixelsToPoints(pixelWidth, viewport.scale);
-    const pointsHeight = this.pdfFieldService.pixelsToPoints(pixelHeight, viewport.scale);
-
-    const pointsTop = this.pdfFieldService.convertYCoordinate(pixelTop, pixelHeight, viewport, this.documentType);
+    const pointsLeft = this.coordService.pixelsToPoints(pixelLeft, viewport.scale);
+    const pointsWidth = this.coordService.pixelsToPoints(pixelWidth, viewport.scale);
+    const pointsHeight = this.coordService.pixelsToPoints(pixelHeight, viewport.scale);
+    const pointsTop = this.coordService.convertYCoordinate(pixelTop, pixelHeight, viewport, this.documentType);
 
     const field: Field = {
       id: `field_${Date.now()}`,
-      name: `${selectedType.label} ${fieldCount}`,
+      name: this.fieldTypeService.generateSmartFieldName(
+        selectedType.inputType,
+        selectedType.contentType ?? FormFieldContentType.DATA,
+        this.fields
+      ),
       inputType: selectedType.inputType,
-      contentType: selectedType.contentType,
+      contentType: selectedType.contentType ?? FormFieldContentType.DATA,
       readOnly: selectedType.readOnly,
       required: false,
       validation: selectedType.validation,
@@ -332,171 +553,125 @@ export class PdfViewerComponent implements OnInit {
 
     this.pdfFieldService.addField(field);
     this.drawingStart = null;
+    // Keep drawing mode active for continuous field creation
   }
 
-  toggleDrawing(): void {
-    this.isDrawing = !this.isDrawing;
-  }
-
-  setFieldType(type: FormFieldInputType): void {
-    this.fieldType = type;
-  }
-
-  getRecipientLabel(index: number): string {
-    return this.pdfFieldService.getRecipientTypeName(index);
-  }
-
-  getSelectedFieldType(): FieldTypeCombination | undefined {
-    return this.fieldTypeCombinations.find(ft =>
-      `${ft.label}_${ft.inputType}_${ft.contentType}`.toLowerCase() === this.selectedFieldType
-    );
-  }
-
-  getFieldTypeIcon(field: Field): string {
-    const combination = this.fieldTypeCombinations.find(ft =>
-      ft.inputType === field.inputType && ft.contentType === field.contentType
-    );
-    return combination?.icon || 'question';
-  }
-
-
-
+  // ==================== Canvas Rendering ====================
 
   redrawOverlay(): void {
     if (!this.drawingCanvas) return;
 
-    const ctx = this.drawingCanvas.nativeElement.getContext('2d')!;
-    ctx.clearRect(0, 0, this.drawingCanvas.nativeElement.width, this.drawingCanvas.nativeElement.height);
+    const canvas = this.drawingCanvas.nativeElement;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
 
-    let viewport: any = null;
-    this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
+    this.canvasRenderer.clearCanvas(canvas);
 
+    const viewport = this.getCurrentViewport();
     if (!viewport) return;
 
     if (this.showGrid) {
-      ctx.save();
-      ctx.strokeStyle = '#e0e0e0';
-      ctx.lineWidth = 0.5;
-      ctx.font = '10px Arial';
-      ctx.fillStyle = '#999';
-
-      const pageWidthInPoints = viewport.width / viewport.scale;
-      const pageHeightInPoints = viewport.height / viewport.scale;
-
-      for (let pointX = 0; pointX <= pageWidthInPoints; pointX += 50) {
-        const pixelX = pointX * viewport.scale;
-        ctx.beginPath();
-        ctx.moveTo(pixelX, 0);
-        ctx.lineTo(pixelX, viewport.height);
-        ctx.stroke();
-
-        ctx.fillText(pointX.toString(), pixelX + 2, 12);
-      }
-
-      for (let pointY = 0; pointY <= pageHeightInPoints; pointY += 50) {
-        const pixelY = pointY * viewport.scale;
-        ctx.beginPath();
-        ctx.moveTo(0, pixelY);
-        ctx.lineTo(viewport.width, pixelY);
-        ctx.stroke();
-
-        let displayY: number;
-        if (this.documentType === AdobeDocumentType.LIBRARY) {
-          // For LIBRARY type, use direct Y coordinate (0 at top)
-          displayY = Math.round(pointY);
-        } else {
-          // For TRANSIENT type, use Adobe's bottom-origin system (0 at bottom)
-          displayY = Math.round(pageHeightInPoints - pointY);
-        }
-        ctx.fillText(displayY.toString(), 2, pixelY - 2);
-      }
-
-      ctx.fillStyle = '#666';
-      ctx.font = '12px Arial';
-      ctx.fillText(`Page: ${pageWidthInPoints.toFixed(0)} × ${pageHeightInPoints.toFixed(0)} points`, 10, viewport.height - 10);
-
-      ctx.restore();
+      this.canvasRenderer.drawGrid(ctx, viewport, this.documentType);
     }
 
     this.fields
       .filter(field => field.locations.pageNumber === this.currentPage)
       .forEach(field => {
-        const left = field.locations.left * viewport.scale;
-        const width = field.locations.width * viewport.scale;
-        const height = field.locations.height * viewport.scale;
+        const color = this.fieldTypeService.getFieldColor(field);
+        const isSelected = this.selectedField?.id === field.id;
+        const isHovered = this.hoveredField?.id === field.id;
+        const recipientLabel = this.getRecipientLabel(field.recipientIndex);
 
-        let top: number;
-        if (this.documentType === AdobeDocumentType.LIBRARY) {
-          // For LIBRARY type, use direct top coordinate (0-based from top)
-          top = field.locations.top * viewport.scale;
-        } else {
-          // For TRANSIENT type, use bottom-origin coordinate system
-          const pageHeightInPoints = viewport.viewBox[3] - viewport.viewBox[1];
-          const pdfTop = field.locations.top;
-          const topInPoints = pageHeightInPoints - pdfTop;
-          top = topInPoints * viewport.scale;
-        }
-
-        const color = this.getFieldColor(field);
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color + '33';
-        ctx.lineWidth = 2;
-
-        ctx.fillRect(left, top, width, height);
-        ctx.strokeRect(left, top, width, height);
-
-        ctx.fillStyle = color;
-        ctx.font = '11px Arial';
-
-        ctx.fillText(
-          field.name,
-          left + 3,
-          top + 12
+        this.canvasRenderer.drawField(
+          ctx,
+          field,
+          viewport,
+          this.documentType,
+          color,
+          isSelected,
+          isHovered,
+          recipientLabel
         );
-
-        ctx.fillText(
-          this.getRecipientLabel(field.recipientIndex),
-          left + 3,
-          top + 24
-        );
-
-        ctx.font = '9px Arial';
-        ctx.fillStyle = '#666';
-        ctx.fillText(
-          `(${field.locations.left?.toFixed?.(0) || 0}, ${field.locations.top?.toFixed?.(0) || 0})`,
-          left + 3,
-          top + height - 3
-        );
-
-        if (field.required) {
-          ctx.fillStyle = '#ff0000';
-          ctx.fillText('*', left + width - 10, top + 12);
-        }
       });
   }
 
-  getFieldColor(field: Field): string {
-    const combination = this.fieldTypeCombinations.find(ft =>
-      ft.inputType === field.inputType && ft.contentType === field.contentType
+  // ==================== Helper Methods ====================
+
+  private getCurrentViewport(): any {
+    let viewport: any = null;
+    this.pdfFieldService.currentViewport$.subscribe(vp => viewport = vp).unsubscribe();
+    return viewport;
+  }
+
+  private getFieldAtPoint(x: number, y: number): Field | null {
+    const viewport = this.getCurrentViewport();
+    if (!viewport) return null;
+
+    const fieldsOnPage = this.fields
+      .filter(field => field.locations.pageNumber === this.currentPage)
+      .reverse();
+
+    for (const field of fieldsOnPage) {
+      if (this.canvasRenderer.isPointInField(x, y, field, viewport, this.documentType)) {
+        return field;
+      }
+    }
+
+    return null;
+  }
+
+  private updateHoverState(coords: { x: number; y: number }, viewport: any): void {
+    const fieldAtPoint = this.getFieldAtPoint(coords.x, coords.y);
+    if (fieldAtPoint !== this.hoveredField) {
+      this.hoveredField = fieldAtPoint;
+      this.redrawOverlay();
+    }
+  }
+
+  private updateCursor(x: number, y: number, viewport: any): void {
+    const cursor = this.interactionService.getCursorStyle(
+      x,
+      y,
+      this.selectedField,
+      this.hoveredField,
+      viewport,
+      this.documentType
     );
-    return combination?.color || '#1890ff';
+    this.drawingCanvas.nativeElement.style.cursor = cursor;
+  }
+
+  private updateCursorAfterOperation(x: number, y: number): void {
+    const viewport = this.getCurrentViewport();
+    if (viewport) {
+      this.updateCursor(x, y, viewport);
+    }
+  }
+
+  // ==================== Public UI Methods ====================
+
+  getRecipientLabel(index: number): string {
+    return this.pdfFieldService.getRecipientTypeName(index);
+  }
+
+  getSelectedFieldType() {
+    return this.fieldTypeService.getFieldTypeByKey(this.selectedFieldType);
   }
 
   changeDocumentType(type: AdobeDocumentType): void {
     this.modal.create({
       nzTitle: 'Change Document Type - Field Remapping Required',
       nzContent: `
-    <p><strong>Changing the document type will remap all field coordinates.</strong></p>
-    <p>Adobe Sign uses different coordinate systems:</p>
-    <ul style="margin: 10px 0;">
-      <li><strong>TRANSIENT:</strong> Origin at bottom-left (0,0)</li>
-      <li><strong>LIBRARY:</strong> Origin at top-left (0,0)</li>
-    </ul>
-    <p>All your fields will be automatically repositioned to maintain their visual placement in the new coordinate system. The Y-coordinates will be recalculated.</p>
-    <p style="color: #ff4d4f; margin-top: 10px;">
-      <strong>Note:</strong> This affects the exported JSON values. Please verify field positions after the change.
-    </p>
-  `,
+        <p><strong>Changing the document type will remap all field coordinates.</strong></p>
+        <p>Adobe Sign uses different coordinate systems:</p>
+        <ul style="margin: 10px 0;">
+          <li><strong>TRANSIENT:</strong> Origin at bottom-left (0,0)</li>
+          <li><strong>LIBRARY:</strong> Origin at top-left (0,0)</li>
+        </ul>
+        <p>All your fields will be automatically repositioned to maintain their visual placement in the new coordinate system. The Y-coordinates will be recalculated.</p>
+        <p style="color: #ff4d4f; margin-top: 10px;">
+          <strong>Note:</strong> This affects the exported JSON values. Please verify field positions after the change.
+        </p>
+      `,
       nzClosable: true,
       nzOkText: 'Continue with Remapping',
       nzOkType: 'primary',
@@ -511,10 +686,124 @@ export class PdfViewerComponent implements OnInit {
     });
   }
 
-  @HostListener('window:resize')
-  onResize(): void {
-    if (this.pdfDocument && this.currentPage) {
-      this.renderPage(this.currentPage);
+  get fieldsOnCurrentPage(): Field[] {
+    return this.fields.filter(f => f.locations.pageNumber === this.currentPage);
+  }
+
+  selectFieldType(field: FieldTypeCombination): void {
+    this.selectedFieldType = `${field.label}_${field.inputType}_${field.contentType}`.toLowerCase();
+  }
+
+  deleteSelectedField(): void {
+    if (this.selectedField) {
+      this.pdfFieldService.deleteField(this.selectedField.id);
+      this.selectedField = null;
+      this.redrawOverlay();
     }
+  }
+
+  // ==================== Import/Export/JSON ====================
+
+  exportJson(): void {
+    const fieldsData = {
+      fields: this.fields,
+      documentType: this.documentType,
+      totalPages: this.totalPages,
+      exportDate: new Date().toISOString()
+    };
+
+    const dataStr = JSON.stringify(fieldsData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `fieldforge-config-${Date.now()}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+
+    this.message.success('Configuration exported successfully!');
+  }
+
+  importJson(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'application/json';
+    input.onchange = (event: any) => {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (e: any) => {
+          try {
+            const config = JSON.parse(e.target.result);
+
+            if (config.fields && Array.isArray(config.fields)) {
+              // Clear existing fields
+              this.fields.forEach(f => this.pdfFieldService.deleteField(f.id));
+
+              // Import new fields
+              config.fields.forEach((field: Field) => {
+                this.pdfFieldService.addField(field);
+              });
+
+              if (config.documentType) {
+                this.documentType = config.documentType;
+              }
+
+              this.redrawOverlay();
+              this.message.success(`Imported ${config.fields.length} fields successfully!`);
+            } else {
+              this.message.error('Invalid configuration file format!');
+            }
+          } catch (error) {
+            this.message.error('Failed to parse JSON file!');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  }
+
+  showJson(): void {
+    const fieldsData = {
+      fields: this.fields,
+      documentType: this.documentType,
+      totalPages: this.totalPages,
+      currentPage: this.currentPage
+    };
+
+    const jsonString = JSON.stringify(fieldsData, null, 2);
+
+    this.modal.create({
+      nzTitle: 'Field Configuration JSON',
+      nzContent: `<pre style="max-height: 500px; overflow: auto; background: #f5f5f5; padding: 16px; border-radius: 4px;"><code>${this.escapeHtml(jsonString)}</code></pre>`,
+      nzWidth: 800,
+      nzFooter: [
+        {
+          label: 'Copy to Clipboard',
+          type: 'primary',
+          onClick: () => {
+            navigator.clipboard.writeText(jsonString).then(() => {
+              this.message.success('JSON copied to clipboard!');
+            });
+          }
+        },
+        {
+          label: 'Close',
+          onClick: () => true
+        }
+      ]
+    });
+  }
+
+  private escapeHtml(text: string): string {
+    const map: { [key: string]: string } = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
   }
 }

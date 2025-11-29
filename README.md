@@ -4,7 +4,7 @@
 
 A professional-grade visual PDF field mapping tool that allows you to configure Adobe Sign form fields without leaving your application. This Angular-based solution demonstrates how to embed document preparation capabilities directly into your own applications, eliminating the need to switch to Adobe Sign's interface.
 
-🚀 **[Live Demo](https://pdfmapper.misuvarga.com/)** | 📖 **[Read the Article](https://misu-varga.com/blog/article/15)**
+🚀 **[Live Demo](https://pdfmapper.misu-varga.com/)** | 📖 **[Read the Article](https://misu-varga.com/blog/article/15)**
 
 ## Overview
 
